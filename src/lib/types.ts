@@ -26,6 +26,7 @@ export interface Project {
   title: string
   description: string
   project_type: ProjectType
+  category: Category
   starter_files: FileMap
   expected_output_url?: string | null
   expected_output_path?: string | null
@@ -87,10 +88,13 @@ export function courseFor(projectType: ProjectType | undefined | null): Course {
   return projectType === 'react' ? 'WEB 301' : 'WEB 101'
 }
 
-export type ExamGroup = 'Mid Term' | 'Practice'
-export const EXAM_GROUPS: ExamGroup[] = ['Mid Term', 'Practice']
-export function examGroupFor(projectTitle: string | undefined | null): ExamGroup {
-  return (projectTitle || '').toUpperCase().includes('SAMPLE') ? 'Practice' : 'Mid Term'
+export type Category = 'Assignments' | 'Bi-Weekly' | 'Mid-Term'
+export const CATEGORIES: Category[] = ['Assignments', 'Bi-Weekly', 'Mid-Term']
+export function categoryFor(project: Pick<Project, 'category' | 'title'> | null | undefined): Category {
+  if (!project) return 'Assignments'
+  if (project.category && (CATEGORIES as string[]).includes(project.category)) return project.category as Category
+  // Fallback for rows the migration hasn't touched yet.
+  return (project.title || '').toUpperCase().includes('SAMPLE') ? 'Bi-Weekly' : 'Mid-Term'
 }
 
 // Back-compat: default export used by code that doesn't know the project type.

@@ -1,8 +1,9 @@
-import { FormEvent, useEffect, useState } from 'react'
+import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import MarkdownEditor from '../../components/MarkdownEditor'
-import type { Project, ProjectType } from '../../lib/types'
+import type { Project, ProjectType, Category, Course } from '../../lib/types'
+import { CATEGORIES, categoryFor, COURSES, courseFor } from '../../lib/types'
 import { WEB301_TEMPLATES } from '../../exam-templates/web301'
 
 const REACT_STARTER = {
@@ -13,21 +14,22 @@ const REACT_STARTER = {
 
 // Persist the create-form draft so switching to another admin tab
 // (Assignments / Submissions) and back doesn't wipe what the user typed.
-const DRAFT_KEY = 'admin:newProjectDraft:v1'
-type Draft = { title: string; desc: string; type: ProjectType; templateId: string }
+const DRAFT_KEY = 'admin:newProjectDraft:v2'
+type Draft = { title: string; desc: string; type: ProjectType; templateId: string; category: Category }
 function loadDraft(): Draft {
   try {
     const raw = sessionStorage.getItem(DRAFT_KEY)
-    if (!raw) return { title: '', desc: '', type: 'html', templateId: '' }
+    if (!raw) return { title: '', desc: '', type: 'html', templateId: '', category: 'Assignments' }
     const d = JSON.parse(raw) as Partial<Draft>
     return {
       title: d.title ?? '',
       desc: d.desc ?? '',
       type: d.type === 'react' ? 'react' : 'html',
       templateId: d.templateId ?? '',
+      category: (CATEGORIES as string[]).includes(d.category || '') ? (d.category as Category) : 'Assignments',
     }
   } catch {
-    return { title: '', desc: '', type: 'html', templateId: '' }
+    return { title: '', desc: '', type: 'html', templateId: '', category: 'Assignments' }
   }
 }
 
@@ -38,19 +40,20 @@ export default function Projects() {
   const [desc, setDesc] = useState(initial.desc)
   const [type, setType] = useState<ProjectType>(initial.type)
   const [templateId, setTemplateId] = useState<string>(initial.templateId)
+  const [category, setCategory] = useState<Category>(initial.category)
   const [busy, setBusy] = useState(false)
   const [bulkBusy, setBulkBusy] = useState(false)
 
   // Save draft on every change; clear it after a successful create.
   useEffect(() => {
     try {
-      if (!title && !desc && !templateId && type === 'html') {
+      if (!title && !desc && !templateId && type === 'html' && category === 'Assignments') {
         sessionStorage.removeItem(DRAFT_KEY)
       } else {
-        sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ title, desc, type, templateId }))
+        sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ title, desc, type, templateId, category }))
       }
     } catch { /* storage disabled — ignore */ }
-  }, [title, desc, type, templateId])
+  }, [title, desc, type, templateId, category])
 
   function applyTemplate(id: string) {
     setTemplateId(id)
@@ -75,6 +78,7 @@ export default function Projects() {
       title,
       description: desc,
       project_type: type,
+      category,
     }
     if (templateId) {
       const tpl = WEB301_TEMPLATES.find(t => t.id === templateId)
@@ -87,7 +91,7 @@ export default function Projects() {
     const { error } = await supabase.from('projects').insert(payload)
     setBusy(false)
     if (error) return alert(error.message)
-    setTitle(''); setDesc(''); setType('html'); setTemplateId('')
+    setTitle(''); setDesc(''); setType('html'); setTemplateId(''); setCategory('Assignments')
     try { sessionStorage.removeItem(DRAFT_KEY) } catch { /* ignore */ }
     load()
   }
@@ -101,6 +105,7 @@ export default function Projects() {
         title: tpl.title,
         description: tpl.description,
         project_type: 'react',
+        category,
         starter_files: tpl.starter_files,
       })
       if (error) { failed++; console.error(tpl.id, error.message) }
@@ -117,6 +122,33 @@ export default function Projects() {
     if (error) return alert(error.message)
     load()
   }
+
+  async function updateCategory(id: string, next: Category) {
+    const prev = rows
+    setRows(rs => rs.map(r => r.id === id ? { ...r, category: next } : r))
+    const { error } = await supabase.from('projects').update({ category: next }).eq('id', id)
+    if (error) { setRows(prev); alert(error.message) }
+  }
+
+  const grouped = useMemo(() => {
+    const byCat = new Map<Category, Map<Course, Project[]>>()
+    for (const p of rows) {
+      const cat = categoryFor(p)
+      const course = courseFor(p.project_type)
+      let inner = byCat.get(cat)
+      if (!inner) { inner = new Map(); byCat.set(cat, inner) }
+      const list = inner.get(course) || []
+      list.push(p)
+      inner.set(course, list)
+    }
+    return CATEGORIES
+      .filter(c => byCat.has(c))
+      .map(cat => {
+        const inner = byCat.get(cat)!
+        const courses = COURSES.filter(c => inner.has(c)).map(course => [course, inner.get(course)!] as const)
+        return [cat, courses] as const
+      })
+  }, [rows])
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -155,6 +187,12 @@ export default function Projects() {
           <input className="input" value={title} onChange={e => setTitle(e.target.value)} required />
         </div>
         <div>
+          <label className="label">Category</label>
+          <select className="input" value={category} onChange={e => setCategory(e.target.value as Category)}>
+            {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </div>
+        <div>
           <label className="label">Project type</label>
           <div className="flex gap-2">
             <label className={`flex-1 cursor-pointer border rounded px-3 py-2 text-sm ${type === 'html' ? 'border-vs-accent text-vs-text' : 'border-vs-border text-vs-mute'}`}>
@@ -184,24 +222,50 @@ export default function Projects() {
         <button className="btn w-full" disabled={busy}>{busy ? '…' : 'Create project'}</button>
       </form>
 
-      <div className="md:col-span-2 space-y-3">
+      <div className="md:col-span-2 space-y-6">
         <h2 className="font-semibold">Projects</h2>
         {rows.length === 0 && <div className="text-vs-mute text-sm">No projects yet.</div>}
-        {rows.map(p => (
-          <div key={p.id} className="card flex items-start justify-between gap-4">
-            <div className="min-w-0">
-              <div className="font-medium flex items-center gap-2">
-                {p.title}
-                <span className={`text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wide ${p.project_type === 'react' ? 'bg-cyan-900/40 text-cyan-200' : 'bg-vs-panel text-vs-mute'}`}>
-                  {p.project_type === 'react' ? 'React' : 'HTML'}
-                </span>
+        {grouped.map(([cat, courses]) => (
+          <div key={cat} className="space-y-3">
+            <div className="flex items-center gap-2 text-sm font-semibold text-vs-text border-b border-vs-border pb-1">
+              <span>{cat}</span>
+              <span className="opacity-60">·</span>
+              <span className="text-vs-mute font-normal">{courses.reduce((n, [, ps]) => n + ps.length, 0)}</span>
+            </div>
+            {courses.map(([course, ps]) => (
+              <div key={course} className="space-y-2 pl-2">
+                <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-vs-mute">
+                  <span>{course}</span>
+                  <span className="opacity-60">·</span>
+                  <span>{ps.length}</span>
+                </div>
+                {ps.map(p => (
+                  <div key={p.id} className="card flex items-start justify-between gap-4">
+                    <div className="min-w-0">
+                      <div className="font-medium flex items-center gap-2">
+                        {p.title}
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wide ${p.project_type === 'react' ? 'bg-cyan-900/40 text-cyan-200' : 'bg-vs-panel text-vs-mute'}`}>
+                          {p.project_type === 'react' ? 'React' : 'HTML'}
+                        </span>
+                      </div>
+                      <div className="text-xs text-vs-mute line-clamp-2 whitespace-pre-wrap">{p.description || '—'}</div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <select
+                        className="input text-xs !py-1 w-28"
+                        value={categoryFor(p)}
+                        onChange={e => updateCategory(p.id, e.target.value as Category)}
+                        title="Category"
+                      >
+                        {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                      <Link to={`/admin/projects/${p.id}`} className="btn-ghost">Edit</Link>
+                      <button className="btn-ghost text-red-400" onClick={() => remove(p.id)}>Delete</button>
+                    </div>
+                  </div>
+                ))}
               </div>
-              <div className="text-xs text-vs-mute line-clamp-2 whitespace-pre-wrap">{p.description || '—'}</div>
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <Link to={`/admin/projects/${p.id}`} className="btn-ghost">Edit</Link>
-              <button className="btn-ghost text-red-400" onClick={() => remove(p.id)}>Delete</button>
-            </div>
+            ))}
           </div>
         ))}
       </div>

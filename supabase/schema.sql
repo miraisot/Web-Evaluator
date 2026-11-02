@@ -38,6 +38,8 @@ alter table public.projects add column if not exists expected_output_url text;
 alter table public.projects add column if not exists expected_output_path text;
 alter table public.projects add column if not exists project_type text not null default 'html'
   check (project_type in ('html', 'react'));
+alter table public.projects add column if not exists category text not null default 'Assignments'
+  check (category in ('Assignments', 'Bi-Weekly', 'Mid-Term'));
 
 create table if not exists public.project_assets (
   id uuid primary key default gen_random_uuid(),

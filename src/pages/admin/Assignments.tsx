@@ -1,8 +1,9 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../../lib/supabase'
-import type { Assignment, Project } from '../../lib/types'
+import type { Assignment, Project, Category, Course } from '../../lib/types'
+import { CATEGORIES, categoryFor, COURSES, courseFor } from '../../lib/types'
 
-type Row = Assignment & { project: Pick<Project, 'title'> }
+type Row = Assignment & { project: Pick<Project, 'title' | 'project_type' | 'category'> }
 
 // local datetime <-> ISO
 const toLocalInput = (iso: string) => {
@@ -52,8 +53,8 @@ export default function Assignments() {
 
   async function load() {
     const [{ data: p }, { data: a }] = await Promise.all([
-      supabase.from('projects').select('id, title').order('created_at', { ascending: false }),
-      supabase.from('assignments').select('*, project:projects(title)').order('created_at', { ascending: false }),
+      supabase.from('projects').select('id, title, project_type, category').order('created_at', { ascending: false }),
+      supabase.from('assignments').select('*, project:projects(title, project_type, category)').order('created_at', { ascending: false }),
     ])
     setProjects((p as Project[]) || [])
     setRows((a as unknown as Row[]) || [])
@@ -121,6 +122,26 @@ export default function Assignments() {
   const shown = rows.filter(r =>
     (!filterProject || r.project_id === filterProject) &&
     (!q || r.project.title.toLowerCase().includes(q) || (r.assignee_email || '').toLowerCase().includes(q)))
+
+  const grouped = useMemo(() => {
+    const byCat = new Map<Category, Map<Course, Row[]>>()
+    for (const r of shown) {
+      const cat = categoryFor(r.project)
+      const course = courseFor(r.project.project_type)
+      let inner = byCat.get(cat)
+      if (!inner) { inner = new Map(); byCat.set(cat, inner) }
+      const list = inner.get(course) || []
+      list.push(r)
+      inner.set(course, list)
+    }
+    return CATEGORIES
+      .filter(c => byCat.has(c))
+      .map(cat => {
+        const inner = byCat.get(cat)!
+        const courses = COURSES.filter(c => inner.has(c)).map(course => [course, inner.get(course)!] as const)
+        return [cat, courses] as const
+      })
+  }, [shown])
 
   // Distinct start→end windows, so a whole exam sitting can be picked at once.
   const windows = useMemo(() => {
@@ -315,29 +336,47 @@ export default function Assignments() {
         )}
 
         {shown.length === 0 && <div className="text-vs-mute text-sm">No assignments.</div>}
-        <div className="space-y-2">
-          {shown.map(a => (
-            <div key={a.id} className="card flex items-center justify-between gap-4">
-              <input
-                type="checkbox"
-                className="shrink-0"
-                checked={selected.has(a.id)}
-                onChange={() => toggle(a)}
-                aria-label={`Select ${a.assignee_email || 'public'} · ${a.project.title}`}
-              />
-              <div className="min-w-0 flex-1">
-                <div className="text-sm">
-                  {a.is_public
-                    ? <span className="inline-block mr-2 px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wide bg-emerald-900/40 border border-emerald-700 text-emerald-300">Public</span>
-                    : <span className="font-mono">{a.assignee_email}</span>}
-                  <span className="text-vs-mute">· {a.project.title}</span>
-                </div>
-                <div className="text-xs text-vs-mute">
-                  {prettyLocal(a.starts_at)} → {prettyLocal(a.ends_at)}
-                  <span className="ml-2 text-vs-text/70">({formatDuration(new Date(a.starts_at), new Date(a.ends_at))})</span>
-                </div>
+        <div className="space-y-6">
+          {grouped.map(([cat, courses]) => (
+            <div key={cat} className="space-y-3">
+              <div className="flex items-center gap-2 text-sm font-semibold text-vs-text border-b border-vs-border pb-1">
+                <span>{cat}</span>
+                <span className="opacity-60">·</span>
+                <span className="text-vs-mute font-normal">{courses.reduce((n, [, items]) => n + items.length, 0)}</span>
               </div>
-              <button className="btn-ghost text-red-400" onClick={() => remove(a)}>Remove</button>
+              {courses.map(([course, items]) => (
+                <div key={course} className="space-y-2 pl-2">
+                  <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-vs-mute">
+                    <span>{course}</span>
+                    <span className="opacity-60">·</span>
+                    <span>{items.length}</span>
+                  </div>
+                  {items.map(a => (
+                    <div key={a.id} className="card flex items-center justify-between gap-4">
+                      <input
+                        type="checkbox"
+                        className="shrink-0"
+                        checked={selected.has(a.id)}
+                        onChange={() => toggle(a)}
+                        aria-label={`Select ${a.assignee_email || 'public'} · ${a.project.title}`}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm">
+                          {a.is_public
+                            ? <span className="inline-block mr-2 px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wide bg-emerald-900/40 border border-emerald-700 text-emerald-300">Public</span>
+                            : <span className="font-mono">{a.assignee_email}</span>}
+                          <span className="text-vs-mute">· {a.project.title}</span>
+                        </div>
+                        <div className="text-xs text-vs-mute">
+                          {prettyLocal(a.starts_at)} → {prettyLocal(a.ends_at)}
+                          <span className="ml-2 text-vs-text/70">({formatDuration(new Date(a.starts_at), new Date(a.ends_at))})</span>
+                        </div>
+                      </div>
+                      <button className="btn-ghost text-red-400" onClick={() => remove(a)}>Remove</button>
+                    </div>
+                  ))}
+                </div>
+              ))}
             </div>
           ))}
         </div>

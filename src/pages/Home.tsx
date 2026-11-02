@@ -35,6 +35,14 @@ export default function Home() {
 
   const now = Date.now()
 
+  // Hide assignments whose window closed, unless the student already submitted —
+  // keep those visible so they can still see what they turned in.
+  const visibleRows = rows.filter(r => {
+    const end = new Date(r.ends_at).getTime()
+    if (now <= end) return true
+    return Boolean(submittedAt[r.id])
+  })
+
   return (
     <div className="min-h-screen">
       <header className="border-b border-vs-border px-4 py-3 flex items-center justify-between">
@@ -49,9 +57,9 @@ export default function Home() {
       <main className="max-w-3xl mx-auto p-6">
         <h2 className="text-lg mb-4">Your assignments</h2>
         {loading ? <div className="text-vs-mute">Loading…</div> :
-          rows.length === 0 ? <div className="text-vs-mute">Nothing assigned yet.</div> :
+          visibleRows.length === 0 ? <div className="text-vs-mute">Nothing assigned yet.</div> :
           <ul className="space-y-3">
-            {rows.map(r => {
+            {visibleRows.map(r => {
               const start = new Date(r.starts_at).getTime()
               const end = new Date(r.ends_at).getTime()
               const open = now >= start && now <= end

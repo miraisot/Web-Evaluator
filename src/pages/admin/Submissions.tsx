@@ -3,16 +3,19 @@ import { Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../lib/auth'
 import { gradeSubmission, sleep } from '../../lib/aiGrade'
-import type { Submission, Assignment, Project, Profile, Evaluation, Course, ExamGroup } from '../../lib/types'
-import { COURSES, courseFor, EXAM_GROUPS, examGroupFor, rubricFor } from '../../lib/types'
+import type { Submission, Assignment, Project, Profile, Evaluation, Course, Category, Campus } from '../../lib/types'
+import { COURSES, courseFor, CATEGORIES, categoryFor, CAMPUSES, rubricFor } from '../../lib/types'
 
 const GRADE_INTERVAL_MS = 5000  // 12 RPM — under Gemini free tier 15 RPM
 
 type Row = Submission & {
-  assignment: Assignment & { project: Pick<Project, 'title' | 'project_type'> }
+  assignment: Assignment & { project: Pick<Project, 'title' | 'project_type' | 'category'> }
   student: Profile | null
   evaluation: Pick<Evaluation, 'total' | 'max_total' | 'graded_at' | 'scores' | 'feedback' | 'feedback_by_criterion'> | null
 }
+
+const UNASSIGNED_CAMPUS = '(no campus)'
+type CampusKey = Campus | typeof UNASSIGNED_CAMPUS
 
 function csvCell(v: unknown): string {
   const s = v == null ? '' : String(v)
@@ -71,7 +74,16 @@ function exportCourse(course: Course, rows: Row[]) {
 
 type GradeFilter = 'all' | 'graded' | 'ungraded'
 type CourseFilter = 'all' | Course
-type ExamFilter = 'all' | ExamGroup
+type CategoryFilter = 'all' | Category
+type CampusFilter = 'all' | CampusKey
+
+const CAMPUS_KEYS: CampusKey[] = [...CAMPUSES, UNASSIGNED_CAMPUS]
+const STUDENT_CAMPUSES: Campus[] = ['Hi-Tech', 'RGIB', 'JU']
+function campusKeyFor(row: Row): CampusKey {
+  const c = row.student?.campus
+  if (!c) return UNASSIGNED_CAMPUS
+  return (STUDENT_CAMPUSES as string[]).includes(c) ? (c as Campus) : UNASSIGNED_CAMPUS
+}
 
 export default function Submissions() {
   const { profile } = useAuth()
@@ -80,7 +92,8 @@ export default function Submissions() {
   const [q, setQ] = useState('')
   const [gradeFilter, setGradeFilter] = useState<GradeFilter>('all')
   const [courseFilter, setCourseFilter] = useState<CourseFilter>('all')
-  const [examFilter, setExamFilter] = useState<ExamFilter>('all')
+  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('all')
+  const [campusFilter, setCampusFilter] = useState<CampusFilter>('all')
   const [grading, setGrading] = useState(false)
   const [gradeProgress, setGradeProgress] = useState<{ done: number; total: number; failed: number; current: string | null }>({ done: 0, total: 0, failed: 0, current: null })
   const [gradeError, setGradeError] = useState<string | null>(null)
@@ -91,7 +104,7 @@ export default function Submissions() {
       .from('submissions')
       // profiles(*) rather than a column list, so a missing optional column
       // (e.g. uid before its migration runs) can't break the list.
-      .select('*, assignment:assignments(*, project:projects(title, project_type)), student:profiles(*), evaluation:evaluations(total,max_total,graded_at,scores,feedback,feedback_by_criterion)')
+      .select('*, assignment:assignments(*, project:projects(title, project_type, category)), student:profiles(*), evaluation:evaluations(total,max_total,graded_at,scores,feedback,feedback_by_criterion)')
       .order('submitted_at', { ascending: false })
       .then(({ data }) => {
         const normalized = ((data as unknown as (Omit<Row, 'evaluation'> & { evaluation: Row['evaluation'] | Row['evaluation'][] })[]) || []).map(r => ({
@@ -117,10 +130,23 @@ export default function Submissions() {
     return c
   }, [rows])
 
-  const examCounts = useMemo(() => {
+  const categoryCounts = useMemo(() => {
     const c: Record<string, number> = { all: rows.length }
-    for (const g of EXAM_GROUPS) c[g] = 0
-    for (const r of rows) c[examGroupFor(r.assignment.project.title)] = (c[examGroupFor(r.assignment.project.title)] || 0) + 1
+    for (const g of CATEGORIES) c[g] = 0
+    for (const r of rows) {
+      const k = categoryFor(r.assignment.project)
+      c[k] = (c[k] || 0) + 1
+    }
+    return c
+  }, [rows])
+
+  const campusCounts = useMemo(() => {
+    const c: Record<string, number> = { all: rows.length }
+    for (const k of CAMPUS_KEYS) c[k] = 0
+    for (const r of rows) {
+      const k = campusKeyFor(r)
+      c[k] = (c[k] || 0) + 1
+    }
     return c
   }, [rows])
 
@@ -128,7 +154,8 @@ export default function Submissions() {
     if (gradeFilter === 'graded' && !r.evaluation) return false
     if (gradeFilter === 'ungraded' && r.evaluation) return false
     if (courseFilter !== 'all' && courseFor(r.assignment.project.project_type) !== courseFilter) return false
-    if (examFilter !== 'all' && examGroupFor(r.assignment.project.title) !== examFilter) return false
+    if (categoryFilter !== 'all' && categoryFor(r.assignment.project) !== categoryFilter) return false
+    if (campusFilter !== 'all' && campusKeyFor(r) !== campusFilter) return false
     if (!q) return true
     const hay = [
       r.student?.email, r.student?.full_name, r.student?.uid, r.student?.campus,
@@ -195,22 +222,37 @@ export default function Submissions() {
     if (failed > 0) setGradeError(`Finished with ${failed} failure(s). Check the console for details.`)
   }
 
-  // Nested grouping: ExamGroup -> Course -> rows
-  const groupedByExam = useMemo(() => {
-    const outer = new Map<ExamGroup, Map<Course, Row[]>>()
-    for (const g of EXAM_GROUPS) {
-      const inner = new Map<Course, Row[]>()
-      for (const c of COURSES) inner.set(c, [])
-      outer.set(g, inner)
-    }
+  // Nested grouping: Campus -> Category -> Course -> rows
+  const grouped = useMemo(() => {
+    const byCampus = new Map<CampusKey, Map<Category, Map<Course, Row[]>>>()
     for (const r of filtered) {
-      const g = examGroupFor(r.assignment.project.title)
-      const c = courseFor(r.assignment.project.project_type)
-      outer.get(g)!.get(c)!.push(r)
+      const campus = campusKeyFor(r)
+      const cat = categoryFor(r.assignment.project)
+      const course = courseFor(r.assignment.project.project_type)
+      let byCat = byCampus.get(campus)
+      if (!byCat) { byCat = new Map(); byCampus.set(campus, byCat) }
+      let byCourse = byCat.get(cat)
+      if (!byCourse) { byCourse = new Map(); byCat.set(cat, byCourse) }
+      const list = byCourse.get(course) || []
+      list.push(r)
+      byCourse.set(course, list)
     }
-    return [...outer.entries()]
-      .map(([g, inner]) => [g, [...inner.entries()].filter(([, items]) => items.length > 0)] as const)
-      .filter(([, courses]) => courses.length > 0)
+    // Order: campuses in declared order (unassigned last), then categories, then courses.
+    return CAMPUS_KEYS
+      .filter(k => byCampus.has(k))
+      .map(campus => {
+        const byCat = byCampus.get(campus)!
+        const cats = CATEGORIES
+          .filter(c => byCat.has(c))
+          .map(cat => {
+            const byCourse = byCat.get(cat)!
+            const courses = COURSES
+              .filter(c => byCourse.has(c))
+              .map(course => [course, byCourse.get(course)!] as const)
+            return [cat, courses] as const
+          })
+        return [campus, cats] as const
+      })
   }, [filtered])
 
   return (
@@ -229,13 +271,24 @@ export default function Submissions() {
           ))}
         </div>
         <div className="flex items-center gap-1 text-xs">
-          {(['all', ...EXAM_GROUPS] as ExamFilter[]).map(e => (
+          {(['all', ...CAMPUS_KEYS] as CampusFilter[]).map(c => (
+            <button
+              key={c}
+              onClick={() => setCampusFilter(c)}
+              className={`px-2 py-1 rounded border ${campusFilter === c ? 'bg-vs-accent text-white border-vs-accent' : 'border-vs-border text-vs-mute hover:text-vs-text'}`}
+            >
+              {c === 'all' ? 'All campuses' : c} <span className="opacity-70">({campusCounts[c] ?? 0})</span>
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-1 text-xs">
+          {(['all', ...CATEGORIES] as CategoryFilter[]).map(e => (
             <button
               key={e}
-              onClick={() => setExamFilter(e)}
-              className={`px-2 py-1 rounded border ${examFilter === e ? 'bg-vs-accent text-white border-vs-accent' : 'border-vs-border text-vs-mute hover:text-vs-text'}`}
+              onClick={() => setCategoryFilter(e)}
+              className={`px-2 py-1 rounded border ${categoryFilter === e ? 'bg-vs-accent text-white border-vs-accent' : 'border-vs-border text-vs-mute hover:text-vs-text'}`}
             >
-              {e === 'all' ? 'All exams' : e} <span className="opacity-70">({examCounts[e] ?? 0})</span>
+              {e === 'all' ? 'All categories' : e} <span className="opacity-70">({categoryCounts[e] ?? 0})</span>
             </button>
           ))}
         </div>
@@ -295,29 +348,38 @@ export default function Submissions() {
       )}
       {loading ? <div className="text-vs-mute">Loading…</div> :
         filtered.length === 0 ? <div className="text-vs-mute">No submissions{q ? ' match.' : ' yet.'}</div> :
-        <div className="space-y-8">
-          {groupedByExam.map(([examGroup, courses]) => (
-            <div key={examGroup} className="space-y-4">
-              <div className="flex items-center gap-2 text-sm font-semibold text-vs-text border-b border-vs-border pb-1">
-                <span>{examGroup}</span>
+        <div className="space-y-10">
+          {grouped.map(([campus, cats]) => {
+            const campusTotal = cats.reduce((n, [, courses]) => n + courses.reduce((m, [, items]) => m + items.length, 0), 0)
+            return (
+            <div key={campus} className="space-y-6">
+              <div className="flex items-center gap-2 text-base font-semibold text-vs-text border-b-2 border-vs-border pb-1">
+                <span>{campus}</span>
                 <span className="opacity-60">·</span>
-                <span className="text-vs-mute font-normal">{courses.reduce((n, [, items]) => n + items.length, 0)}</span>
+                <span className="text-vs-mute font-normal text-sm">{campusTotal}</span>
               </div>
-              {courses.map(([course, items]) => (
-                <div key={course} className="space-y-2 pl-2">
-                  <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-vs-mute">
-                    <span>{course}</span>
+              {cats.map(([category, courses]) => (
+                <div key={category} className="space-y-4 pl-2">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-vs-text border-b border-vs-border pb-1">
+                    <span>{category}</span>
                     <span className="opacity-60">·</span>
-                    <span>{items.length}</span>
-                    <button
-                      onClick={() => exportCourse(course, items)}
-                      className="ml-auto px-2 py-0.5 rounded border border-vs-border normal-case tracking-normal text-vs-mute hover:text-vs-text"
-                      title={`Download ${course} rows as CSV`}
-                    >
-                      Export CSV
-                    </button>
+                    <span className="text-vs-mute font-normal">{courses.reduce((n, [, items]) => n + items.length, 0)}</span>
                   </div>
-                  {items.map(r => (
+                  {courses.map(([course, items]) => (
+                    <div key={course} className="space-y-2 pl-2">
+                      <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-vs-mute">
+                        <span>{course}</span>
+                        <span className="opacity-60">·</span>
+                        <span>{items.length}</span>
+                        <button
+                          onClick={() => exportCourse(course, items)}
+                          className="ml-auto px-2 py-0.5 rounded border border-vs-border normal-case tracking-normal text-vs-mute hover:text-vs-text"
+                          title={`Download ${course} rows as CSV`}
+                        >
+                          Export CSV
+                        </button>
+                      </div>
+                      {items.map(r => (
                 <div key={r.id} className="card flex items-center justify-between gap-4">
               <div className="min-w-0">
                 <div className="text-sm font-medium">{r.assignment.project.title}</div>
@@ -352,11 +414,14 @@ export default function Submissions() {
                 </Link>
               </div>
             </div>
+                      ))}
+                    </div>
                   ))}
                 </div>
               ))}
             </div>
-          ))}
+            )
+          })}
         </div>
       }
     </div>
