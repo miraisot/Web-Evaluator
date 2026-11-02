@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
+import { useAuth } from '../../lib/auth'
+import { gradeSubmission, sleep } from '../../lib/aiGrade'
 import type { Submission, Assignment, Project, Profile, Evaluation, Course, ExamGroup } from '../../lib/types'
 import { COURSES, courseFor, EXAM_GROUPS, examGroupFor, rubricFor } from '../../lib/types'
+
+const GRADE_INTERVAL_MS = 5000  // 12 RPM — under Gemini free tier 15 RPM
 
 type Row = Submission & {
   assignment: Assignment & { project: Pick<Project, 'title' | 'project_type'> }
@@ -70,12 +74,17 @@ type CourseFilter = 'all' | Course
 type ExamFilter = 'all' | ExamGroup
 
 export default function Submissions() {
+  const { profile } = useAuth()
   const [rows, setRows] = useState<Row[]>([])
   const [loading, setLoading] = useState(true)
   const [q, setQ] = useState('')
   const [gradeFilter, setGradeFilter] = useState<GradeFilter>('all')
   const [courseFilter, setCourseFilter] = useState<CourseFilter>('all')
   const [examFilter, setExamFilter] = useState<ExamFilter>('all')
+  const [grading, setGrading] = useState(false)
+  const [gradeProgress, setGradeProgress] = useState<{ done: number; total: number; failed: number; current: string | null }>({ done: 0, total: 0, failed: 0, current: null })
+  const [gradeError, setGradeError] = useState<string | null>(null)
+  const [cancelGrading, setCancelGrading] = useState(false)
 
   useEffect(() => {
     supabase
@@ -127,6 +136,64 @@ export default function Submissions() {
     ].filter(Boolean).join(' ').toLowerCase()
     return hay.includes(q.toLowerCase())
   })
+
+  const ungradedInView = filtered.filter(r => !r.evaluation)
+
+  async function runGradeAll() {
+    if (grading) return
+    setGradeError(null)
+    const targets = ungradedInView
+    if (targets.length === 0) { setGradeError('No ungraded submissions in current view.'); return }
+
+    const label = targets.length === 1
+      ? '1 submission'
+      : `${targets.length} submissions (~${Math.ceil(targets.length * GRADE_INTERVAL_MS / 60000)} min)`
+    if (!confirm(`Auto-grade ${label} using Gemini? This runs ~1 per 5s to stay under the free-tier rate limit.`)) return
+
+    setCancelGrading(false)
+    setGrading(true)
+    setGradeProgress({ done: 0, total: targets.length, failed: 0, current: null })
+
+    let done = 0
+    let failed = 0
+    for (let i = 0; i < targets.length; i++) {
+      if (cancelGrading) break
+      const r = targets[i]
+      setGradeProgress({ done, total: targets.length, failed, current: `${r.assignment.project.title} — ${r.student?.full_name || r.student?.email || r.assignment.assignee_email || ''}` })
+
+      let attempt = 0
+      while (true) {
+        try {
+          const result = await gradeSubmission({
+            submissionId: r.id,
+            gradedBy: profile?.id ?? null,
+          })
+          setRows(prev => prev.map(x => x.id === r.id
+            ? { ...x, evaluation: { total: result.total, max_total: result.max_total, graded_at: new Date().toISOString(), scores: result.scores, feedback: '', feedback_by_criterion: result.feedback_by_criterion } }
+            : x))
+          done += 1
+          break
+        } catch (e) {
+          const err = e as Error & { status?: number; retryAfterMs?: number }
+          if (err.status === 429 && attempt < 4) {
+            const wait = err.retryAfterMs ?? (2000 * Math.pow(2, attempt))
+            await sleep(wait)
+            attempt += 1
+            continue
+          }
+          failed += 1
+          console.error('[grade-all]', r.id, err)
+          break
+        }
+      }
+      setGradeProgress({ done, total: targets.length, failed, current: null })
+      if (i < targets.length - 1) await sleep(GRADE_INTERVAL_MS)
+    }
+
+    setGrading(false)
+    setGradeProgress(p => ({ ...p, current: null }))
+    if (failed > 0) setGradeError(`Finished with ${failed} failure(s). Check the console for details.`)
+  }
 
   // Nested grouping: ExamGroup -> Course -> rows
   const groupedByExam = useMemo(() => {
@@ -189,7 +256,43 @@ export default function Submissions() {
           value={q}
           onChange={e => setQ(e.target.value)}
         />
+        {grading ? (
+          <button
+            onClick={() => setCancelGrading(true)}
+            className="px-2 py-1 rounded border border-amber-500/50 text-amber-300 text-xs hover:bg-amber-500/10"
+            title="Finish the current submission, then stop"
+          >
+            Stop grading
+          </button>
+        ) : (
+          <button
+            onClick={runGradeAll}
+            disabled={ungradedInView.length === 0}
+            className="px-2 py-1 rounded border border-vs-accent text-vs-accent text-xs hover:bg-vs-accent hover:text-white disabled:opacity-40 disabled:cursor-not-allowed"
+            title={ungradedInView.length === 0 ? 'Nothing ungraded in current view' : `Auto-grade ${ungradedInView.length} ungraded submission(s) with Gemini`}
+          >
+            Grade all ({ungradedInView.length})
+          </button>
+        )}
       </div>
+      {(grading || gradeProgress.done > 0 || gradeError) && (
+        <div className="text-xs flex items-center gap-3 flex-wrap">
+          {grading && (
+            <span className="text-vs-mute">
+              Grading {gradeProgress.done + gradeProgress.failed}/{gradeProgress.total}
+              {gradeProgress.failed > 0 && <span className="text-red-400"> · {gradeProgress.failed} failed</span>}
+              {gradeProgress.current && <span className="ml-2 opacity-70">{gradeProgress.current}</span>}
+            </span>
+          )}
+          {!grading && gradeProgress.done > 0 && (
+            <span className="text-emerald-300">
+              Graded {gradeProgress.done}/{gradeProgress.total}
+              {gradeProgress.failed > 0 && <span className="text-red-400"> · {gradeProgress.failed} failed</span>}
+            </span>
+          )}
+          {gradeError && <span className="text-red-400">{gradeError}</span>}
+        </div>
+      )}
       {loading ? <div className="text-vs-mute">Loading…</div> :
         filtered.length === 0 ? <div className="text-vs-mute">No submissions{q ? ' match.' : ' yet.'}</div> :
         <div className="space-y-8">
