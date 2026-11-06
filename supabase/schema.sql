@@ -209,6 +209,44 @@ create policy "assets admin update" on storage.objects for update
 create policy "assets admin delete" on storage.objects for delete
   using (bucket_id = 'project-assets' and public.is_admin());
 
+-- ---------- MERN Assignment Support ---------------------------------
+-- Adds `project_type` to projects, and submission-type columns to submissions.
+-- All changes are additive and backwards compatible: existing rows auto-migrate
+-- to `project_type = 'live_preview'` and `submission_type = 'code'`.
+
+alter table public.projects
+  add column if not exists project_type text not null default 'live_preview';
+-- Guard the allowed values. Dropped-and-recreated so re-running the schema
+-- replaces an older constraint if we ever extend the enum.
+alter table public.projects drop constraint if exists projects_project_type_check;
+alter table public.projects
+  add constraint projects_project_type_check
+  check (project_type in ('live_preview','code_review','external_link'));
+
+alter table public.submissions
+  add column if not exists submission_type text not null default 'code';
+alter table public.submissions drop constraint if exists submissions_submission_type_check;
+alter table public.submissions
+  add constraint submissions_submission_type_check
+  check (submission_type in ('code','external_link'));
+
+alter table public.submissions add column if not exists repo_url text;
+alter table public.submissions add column if not exists deployed_url text;
+alter table public.submissions add column if not exists notes text;
+
+-- Shape sanity: an external_link submission needs at least a repo_url.
+alter table public.submissions drop constraint if exists submissions_external_link_shape;
+alter table public.submissions
+  add constraint submissions_external_link_shape
+  check (
+    submission_type <> 'external_link'
+    or repo_url is not null
+  );
+
+-- Existing RLS policies on submissions do NOT inspect submission shape
+-- (only time window + ownership), so they already cover both types. No
+-- policy change is required.
+
 -- ---------- Promote a first admin -----------------------------------
 -- After signing up, run this in SQL editor with your email:
 --   update public.profiles set role = 'admin' where email = 'you@example.com';

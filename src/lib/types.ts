@@ -6,6 +6,20 @@ export const CAMPUSES: Campus[] = ['Hi-Tech', 'RGIB', 'JU', 'Dummy']
 export const SECTIONS = ['A', 'B', 'C', 'D', 'Dummy'] as const
 export const SEMESTERS = ['1', '2', '3', '4', '5', '6', '7', '8', 'Dummy'] as const
 
+// ---------- MERN assignment support ---------------------------------
+// A project's `project_type` decides which editor + submission UI the
+// student (and admin viewer) renders. Defaults to 'live_preview' so
+// every existing project keeps working unchanged.
+export type ProjectType = 'live_preview' | 'code_review' | 'external_link'
+export const PROJECT_TYPES: ProjectType[] = ['live_preview', 'code_review', 'external_link']
+export const PROJECT_TYPE_LABELS: Record<ProjectType, string> = {
+  live_preview: 'Live preview (HTML/CSS/JS)',
+  code_review: 'Code review (MERN / any language)',
+  external_link: 'External link submission (GitHub + deployed URL)',
+}
+
+export type SubmissionType = 'code' | 'external_link'
+
 export interface Profile {
   id: string
   email: string
@@ -23,6 +37,7 @@ export interface Project {
   title: string
   description: string
   starter_files: FileMap
+  project_type: ProjectType
   created_at: string
 }
 
@@ -51,5 +66,9 @@ export interface Submission {
   assignment_id: string
   student_id: string
   files: FileMap
+  submission_type: SubmissionType
+  repo_url: string | null
+  deployed_url: string | null
+  notes: string | null
   submitted_at: string
 }

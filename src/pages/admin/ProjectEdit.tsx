@@ -3,7 +3,14 @@ import { Link, useParams } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import CodeEditor from '../../components/CodeEditor'
 import MarkdownEditor from '../../components/MarkdownEditor'
-import type { FileMap, Project, ProjectAsset } from '../../lib/types'
+import {
+  PROJECT_TYPES,
+  PROJECT_TYPE_LABELS,
+  type FileMap,
+  type Project,
+  type ProjectAsset,
+  type ProjectType,
+} from '../../lib/types'
 
 function AssetTree({ assets, onRemove }: { assets: ProjectAsset[]; onRemove: (a: ProjectAsset) => void }) {
   // Group by top-level folder; files at root go under "/"
@@ -87,7 +94,12 @@ export default function ProjectEdit() {
     setSaving(true)
     const { error } = await supabase
       .from('projects')
-      .update({ title: project.title, description: project.description, starter_files: files })
+      .update({
+        title: project.title,
+        description: project.description,
+        starter_files: files,
+        project_type: project.project_type || 'live_preview',
+      })
       .eq('id', project.id)
     setSaving(false)
     if (error) return alert(error.message)
@@ -206,11 +218,18 @@ export default function ProjectEdit() {
 
   if (!project) return <div className="text-vs-mute">Loading…</div>
 
+  const projectType: ProjectType = project.project_type || 'live_preview'
+  const showStarterFiles = projectType !== 'external_link'
+  const showAssets = projectType === 'live_preview'
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
         <Link to="/admin/projects" className="text-vs-mute hover:text-vs-text text-sm">← Projects</Link>
         <h2 className="font-semibold">{project.title}</h2>
+        <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded border border-vs-border text-vs-mute">
+          {projectType === 'live_preview' ? 'live preview' : projectType === 'code_review' ? 'code review' : 'external link'}
+        </span>
         <button className="btn ml-auto" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
       </div>
 
@@ -219,6 +238,23 @@ export default function ProjectEdit() {
           <div>
             <label className="label">Title</label>
             <input className="input" value={project.title} onChange={e => setProject({ ...project, title: e.target.value })} />
+          </div>
+          <div>
+            <label className="label">Project type</label>
+            <select
+              className="input"
+              value={projectType}
+              onChange={e => setProject({ ...project, project_type: e.target.value as ProjectType })}
+            >
+              {PROJECT_TYPES.map(t => (
+                <option key={t} value={t}>{PROJECT_TYPE_LABELS[t]}</option>
+              ))}
+            </select>
+            <div className="text-[11px] text-vs-mute mt-1">
+              {projectType === 'live_preview' && 'HTML / CSS / JS with sandboxed iframe preview.'}
+              {projectType === 'code_review' && 'Any-language code. Instructor reviews manually.'}
+              {projectType === 'external_link' && 'Student submits GitHub repo URL + deployed URL.'}
+            </div>
           </div>
           <div>
             <label className="label">Problem statement (markdown)</label>
@@ -231,6 +267,7 @@ export default function ProjectEdit() {
           </div>
         </div>
 
+        {showStarterFiles && (
         <div className="md:col-span-2 card">
           <div className="flex items-center justify-between mb-2">
             <h3 className="font-medium">Starter files</h3>
@@ -275,8 +312,27 @@ export default function ProjectEdit() {
             </div>
           </div>
         </div>
+        )}
       </div>
 
+      {projectType === 'external_link' && (
+        <div className="card text-sm text-vs-mute">
+          <div className="font-medium text-vs-text mb-1">External link project</div>
+          Students will submit a GitHub repository URL, a deployed URL and optional notes.
+          No starter files or asset library are needed for this project type.
+        </div>
+      )}
+
+      {projectType === 'code_review' && (
+        <div className="card text-sm text-vs-mute">
+          <div className="font-medium text-vs-text mb-1">Code review project</div>
+          Student code is not executed by the platform. Starter files you set above
+          (e.g. <code className="text-vs-text">server.js</code>, <code className="text-vs-text">package.json</code>)
+          are shown to the student in Monaco; submissions are reviewed manually.
+        </div>
+      )}
+
+      {showAssets && (
       <div className="card">
         <div className="flex flex-wrap items-end gap-3 mb-4">
           <div className="flex-1 min-w-[200px]">
@@ -319,6 +375,7 @@ export default function ProjectEdit() {
           <AssetTree assets={assets} onRemove={removeAsset} />
         )}
       </div>
+      )}
     </div>
   )
 }

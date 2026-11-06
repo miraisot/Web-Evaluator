@@ -5,7 +5,13 @@ import { useAuth } from '../lib/auth'
 import CodeEditor from '../components/CodeEditor'
 import Preview from '../components/Preview'
 import Markdown from '../components/Markdown'
-import type { Assignment, FileMap, Project, ProjectAsset } from '../lib/types'
+import CodeReviewMode from '../components/CodeReviewMode'
+import ExternalLinkMode, {
+  EMPTY_LINK_DRAFT,
+  isGithubUrl,
+  type ExternalLinkDraft,
+} from '../components/ExternalLinkMode'
+import type { Assignment, FileMap, Project, ProjectAsset, ProjectType } from '../lib/types'
 
 type AssignmentRow = Assignment & { project: Project }
 
@@ -15,7 +21,14 @@ const DEFAULT_FILES: FileMap = {
   'script.js': '',
 }
 
+// Starter files for a code_review (MERN) project if the admin didn't set any.
+const DEFAULT_CODE_REVIEW_FILES: FileMap = {
+  'server.js': '// Entry point — your Express app lives here.\n',
+  'package.json': JSON.stringify({ name: 'submission', version: '1.0.0', main: 'server.js' }, null, 2),
+}
+
 function draftKey(id: string) { return `web-eval:draft:${id}` }
+function linkDraftKey(id: string) { return `web-eval:link-draft:${id}` }
 
 export default function Solve() {
   const { assignmentId } = useParams()
@@ -25,6 +38,7 @@ export default function Solve() {
   const [assignment, setAssignment] = useState<AssignmentRow | null>(null)
   const [assets, setAssets] = useState<ProjectAsset[]>([])
   const [files, setFiles] = useState<FileMap>(DEFAULT_FILES)
+  const [linkDraft, setLinkDraft] = useState<ExternalLinkDraft>(EMPTY_LINK_DRAFT)
   const [folders, setFolders] = useState<string[]>([])  // empty folders the student made
   const [active, setActive] = useState<string>('index.html')
   const [loading, setLoading] = useState(true)
@@ -84,15 +98,29 @@ export default function Solve() {
         return
       }
 
-      const { data: a } = await supabase
-        .from('project_assets')
-        .select('*')
-        .eq('project_id', row.project_id)
-      setAssets((a as ProjectAsset[]) || [])
+      const projectType: ProjectType = (row.project as Project).project_type || 'live_preview'
 
-      // Load draft from localStorage else starter files
+      // External link projects don't use asset library; skip the fetch.
+      if (projectType === 'live_preview') {
+        const { data: a } = await supabase
+          .from('project_assets')
+          .select('*')
+          .eq('project_id', row.project_id)
+        setAssets((a as ProjectAsset[]) || [])
+      } else {
+        setAssets([])
+      }
+
+      // Pick the right default starter set for the project type.
+      const defaultsForType = projectType === 'live_preview'
+        ? DEFAULT_FILES
+        : projectType === 'code_review'
+          ? DEFAULT_CODE_REVIEW_FILES
+          : {}
+
+      // Load file draft (used by live_preview + code_review)
       const draft = localStorage.getItem(draftKey(assignmentId))
-      const starter = { ...DEFAULT_FILES, ...(row.project.starter_files || {}) }
+      const starter = { ...defaultsForType, ...(row.project.starter_files || {}) }
       if (draft) {
         try {
           const parsed = JSON.parse(draft)
@@ -101,6 +129,14 @@ export default function Solve() {
           else setFiles(parsed as FileMap)
         } catch { setFiles(starter) }
       } else setFiles(starter)
+
+      // Load external-link draft (used only by external_link)
+      if (projectType === 'external_link') {
+        const ld = localStorage.getItem(linkDraftKey(assignmentId))
+        if (ld) {
+          try { setLinkDraft({ ...EMPTY_LINK_DRAFT, ...JSON.parse(ld) }) } catch { /* ignore */ }
+        }
+      }
       setLoading(false)
     })()
   }, [assignmentId])
@@ -110,6 +146,16 @@ export default function Solve() {
     if (!assignmentId || loading) return
     localStorage.setItem(draftKey(assignmentId), JSON.stringify({ files, folders }))
   }, [files, folders, assignmentId, loading])
+
+  // Persist external-link draft
+  useEffect(() => {
+    if (!assignmentId || loading) return
+    localStorage.setItem(linkDraftKey(assignmentId), JSON.stringify(linkDraft))
+  }, [linkDraft, assignmentId, loading])
+
+  // Keep latest linkDraft for auto-submit without re-arming the countdown.
+  const linkDraftRef = useRef(linkDraft)
+  useEffect(() => { linkDraftRef.current = linkDraft }, [linkDraft])
 
   // Esc closes the problem modal or exits preview fullscreen
   useEffect(() => {
@@ -160,16 +206,31 @@ export default function Solve() {
 
   async function autoSubmit() {
     if (!assignment || !profile) return
+    const projectType: ProjectType = assignment.project.project_type || 'live_preview'
+    // Build the insert payload based on project type.
+    const basePayload = { assignment_id: assignment.id, student_id: profile.id }
+    const payload: Record<string, unknown> = projectType === 'external_link'
+      ? {
+          ...basePayload,
+          files: {},
+          submission_type: 'external_link',
+          repo_url: linkDraftRef.current.repo_url.trim() || null,
+          deployed_url: linkDraftRef.current.deployed_url.trim() || null,
+          notes: linkDraftRef.current.notes.trim() || null,
+        }
+      : {
+          ...basePayload,
+          files: filesRef.current,
+          submission_type: 'code',
+        }
     // eslint-disable-next-line no-console
     console.log('[auto-submit] firing at', new Date().toISOString(), {
       assignment_id: assignment.id,
       student_id: profile.id,
       ends_at: assignment.ends_at,
-      file_count: Object.keys(filesRef.current).length,
+      project_type: projectType,
     })
-    const { error } = await supabase
-      .from('submissions')
-      .insert({ assignment_id: assignment.id, student_id: profile.id, files: filesRef.current })
+    const { error } = await supabase.from('submissions').insert(payload)
     if (error) {
       // eslint-disable-next-line no-console
       console.error('[auto-submit] failed:', error)
@@ -291,15 +352,38 @@ export default function Solve() {
     const now = Date.now()
     if (now < start) return alert('Not open yet')
     if (now > end) return alert('Submission window closed')
+
+    const projectType: ProjectType = assignment.project.project_type || 'live_preview'
+
+    // Validate the external-link form before confirming.
+    if (projectType === 'external_link') {
+      if (!linkDraft.repo_url.trim()) return alert('Please paste your GitHub repository URL.')
+      if (!isGithubUrl(linkDraft.repo_url)) return alert('GitHub URL must be a valid https URL on github.com.')
+    }
+
     if (!confirm('Submit this version for evaluation?')) return
     setSubmitting(true)
-    const { error } = await supabase
-      .from('submissions')
-      .insert({ assignment_id: assignment.id, student_id: profile.id, files })
+    const basePayload = { assignment_id: assignment.id, student_id: profile.id }
+    const payload: Record<string, unknown> = projectType === 'external_link'
+      ? {
+          ...basePayload,
+          files: {},
+          submission_type: 'external_link',
+          repo_url: linkDraft.repo_url.trim(),
+          deployed_url: linkDraft.deployed_url.trim() || null,
+          notes: linkDraft.notes.trim() || null,
+        }
+      : {
+          ...basePayload,
+          files,
+          submission_type: 'code',
+        }
+    const { error } = await supabase.from('submissions').insert(payload)
     setSubmitting(false)
     if (error) return alert(error.message)
     didSubmitRef.current = true
     localStorage.removeItem(draftKey(assignment.id))
+    localStorage.removeItem(linkDraftKey(assignment.id))
     alert('Submitted!')
     nav('/')
   }
@@ -307,6 +391,8 @@ export default function Solve() {
   if (loading) return <div className="p-6 text-vs-mute">Loading…</div>
   if (err) return <div className="p-6 text-red-400">{err}</div>
   if (!assignment) return null
+
+  const projectType: ProjectType = assignment.project.project_type || 'live_preview'
 
   if (alreadySubmittedAt) {
     return (
@@ -325,6 +411,61 @@ export default function Solve() {
     )
   }
 
+  // ---------- External link mode: lightweight form-only page -----------
+  if (projectType === 'external_link') {
+    return (
+      <div className="h-screen flex flex-col">
+        <header className="h-10 shrink-0 border-b border-vs-border px-3 flex items-center justify-between text-sm">
+          <div className="flex items-center gap-3">
+            <Link to="/" className="text-vs-mute hover:text-vs-text">← Back</Link>
+            <span className="font-medium truncate max-w-md">{assignment.project.title}</span>
+            <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded border border-vs-border text-vs-mute">
+              external link
+            </span>
+          </div>
+          <div className="flex items-center gap-4">
+            <span className={`text-vs-mute ${remaining === 'Time up' ? 'text-red-400' : ''}`}>
+              Time left: <span className="text-vs-text">{remaining}</span>
+            </span>
+            <button className="btn" onClick={submit} disabled={submitting || remaining === 'Time up'}>
+              {submitting ? 'Submitting…' : 'Submit'}
+            </button>
+          </div>
+        </header>
+        {autoSubmitted && (
+          <div className={`shrink-0 px-4 py-2 text-sm flex items-start justify-between gap-4
+            ${autoSubmitted === 'ok'
+              ? 'bg-emerald-900/30 border-b border-emerald-700 text-emerald-200'
+              : 'bg-red-900/30 border-b border-red-700 text-red-200'}`}>
+            <div className="flex-1 min-w-0">
+              {autoSubmitted === 'ok'
+                ? <span>⏱ Time's up — your submission was auto-submitted.</span>
+                : (
+                  <>
+                    <div>⏱ Time's up — auto-submit failed. Your draft is saved locally.</div>
+                    {autoSubmitError && (
+                      <div className="mt-1 text-xs font-mono text-red-300/90 break-all">
+                        Server said: {autoSubmitError}
+                      </div>
+                    )}
+                  </>
+                )}
+            </div>
+            <button className="btn-ghost shrink-0" onClick={() => nav('/')}>Back to home</button>
+          </div>
+        )}
+        <div className="flex-1 min-h-0">
+          <ExternalLinkMode
+            problemStatement={assignment.project.description || ''}
+            value={linkDraft}
+            onChange={setLinkDraft}
+            disabled={remaining === 'Time up' || submitting}
+          />
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="h-screen flex flex-col">
       {/* Top bar */}
@@ -332,6 +473,11 @@ export default function Solve() {
         <div className="flex items-center gap-3">
           <Link to="/" className="text-vs-mute hover:text-vs-text">← Back</Link>
           <span className="font-medium truncate max-w-md">{assignment.project.title}</span>
+          {projectType === 'code_review' && (
+            <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded border border-vs-border text-vs-mute">
+              code review
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-4">
           <span className={`text-vs-mute ${remaining === 'Time up' ? 'text-red-400' : ''}`}>
@@ -591,24 +737,28 @@ export default function Solve() {
             style={previewFull ? undefined : { width: previewW }}
           >
             <div className="h-8 shrink-0 border-b border-vs-border bg-vs-sidebar flex items-center justify-between px-2 text-xs text-vs-mute">
-              <div className="px-2">Preview</div>
+              <div className="px-2">{projectType === 'code_review' ? 'Info' : 'Preview'}</div>
               <div className="flex items-center gap-1">
-                <button
-                  onClick={() => setPreviewFull(f => !f)}
-                  className="px-2 h-7 rounded hover:bg-vs-panel text-vs-mute hover:text-vs-text"
-                  title={previewFull ? 'Exit fullscreen (Esc)' : 'Fullscreen preview'}
-                >{previewFull ? '⤡ Exit' : '⤢ Fullscreen'}</button>
+                {projectType !== 'code_review' && (
+                  <button
+                    onClick={() => setPreviewFull(f => !f)}
+                    className="px-2 h-7 rounded hover:bg-vs-panel text-vs-mute hover:text-vs-text"
+                    title={previewFull ? 'Exit fullscreen (Esc)' : 'Fullscreen preview'}
+                  >{previewFull ? '⤡ Exit' : '⤢ Fullscreen'}</button>
+                )}
                 {!previewFull && (
                   <button
                     onClick={() => setPreviewOpen(false)}
                     className="px-2 h-7 rounded hover:bg-vs-panel text-vs-mute hover:text-vs-text"
-                    title="Hide preview"
+                    title={projectType === 'code_review' ? 'Hide panel' : 'Hide preview'}
                   >✕</button>
                 )}
               </div>
             </div>
             <div className="flex-1 min-h-0">
-              <Preview files={files} assets={assets} />
+              {projectType === 'code_review'
+                ? <CodeReviewMode />
+                : <Preview files={files} assets={assets} />}
             </div>
           </section>
         )}
