@@ -17,15 +17,20 @@ export default function MarkdownEditor({ value, onChange, placeholder, minHeight
     const ta = ref.current; if (!ta) return
     const start = ta.selectionStart
     const end = ta.selectionEnd
+    const scrollTop = ta.scrollTop
     const selected = value.slice(start, end) || placeholder
     const next = value.slice(0, start) + before + selected + after + value.slice(end)
     onChange(next)
-    // Restore selection around the inserted text
+    // Restore selection around the inserted text and preserve scroll position
+    // (React's value update resets the native cursor to the end, which causes
+    // focus() to scroll to the bottom of long content).
     requestAnimationFrame(() => {
-      ta.focus()
+      const t = ref.current; if (!t) return
       const sStart = start + before.length
       const sEnd = sStart + selected.length
-      ta.setSelectionRange(sStart, sEnd)
+      t.focus()
+      t.setSelectionRange(sStart, sEnd)
+      t.scrollTop = scrollTop
     })
   }
 
@@ -34,6 +39,7 @@ export default function MarkdownEditor({ value, onChange, placeholder, minHeight
     const ta = ref.current; if (!ta) return
     const start = ta.selectionStart
     const end = ta.selectionEnd
+    const scrollTop = ta.scrollTop
     const lineStart = value.lastIndexOf('\n', start - 1) + 1
     const lineEnd = (() => { const i = value.indexOf('\n', end); return i === -1 ? value.length : i })()
     const block = value.slice(lineStart, lineEnd)
@@ -44,8 +50,10 @@ export default function MarkdownEditor({ value, onChange, placeholder, minHeight
     const next = value.slice(0, lineStart) + newBlock + value.slice(lineEnd)
     onChange(next)
     requestAnimationFrame(() => {
-      ta.focus()
-      ta.setSelectionRange(lineStart, lineStart + newBlock.length)
+      const t = ref.current; if (!t) return
+      t.focus()
+      t.setSelectionRange(lineStart, lineStart + newBlock.length)
+      t.scrollTop = scrollTop
     })
   }
 

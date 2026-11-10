@@ -1,7 +1,20 @@
+# MCP server config holds a Supabase personal access token
+.mcp.json
+
 # Dependencies
 node_modules/
 .pnp/
 .pnp.js
+
+# Database dumps (npm run db:dump): user emails and password hashes
+backups/
+
+# Exam rosters and student→problem lists (student emails)
+exam-data/
+
+# SEB config with the quit-password hash (a short password is crackable from
+# its hash, and this repo is public). The template without it stays tracked.
+seb/web-eval-exam.seb
 
 # Build output
 dist/
@@ -32,6 +45,9 @@ pnpm-debug.log*
 coverage/
 .nyc_output/
 
+# Claude Code personal settings (the shared .claude/launch.json stays tracked)
+.claude/settings.local.json
+
 # Editors
 .vscode/*
 !.vscode/extensions.json
@@ -49,3 +65,6 @@ ehthumbs.db
 # Supabase CLI (if you add it later)
 supabase/.branches/
 supabase/.temp/
+HANDOFF.md 
+
+.claude/

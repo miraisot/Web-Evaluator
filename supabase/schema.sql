@@ -20,6 +20,7 @@ alter table public.profiles add column if not exists full_name text;
 alter table public.profiles add column if not exists campus text;
 alter table public.profiles add column if not exists semester text;
 alter table public.profiles add column if not exists section text;
+alter table public.profiles add column if not exists uid text;   -- university ID from signup
 
 create table if not exists public.projects (
   id uuid primary key default gen_random_uuid(),
@@ -33,6 +34,16 @@ create table if not exists public.projects (
   created_by uuid references public.profiles(id) on delete set null,
   created_at timestamptz default now()
 );
+alter table public.projects add column if not exists expected_output_url text;
+alter table public.projects add column if not exists expected_output_path text;
+alter table public.projects add column if not exists project_type text not null default 'html'
+  check (project_type in ('html', 'react'));
+alter table public.projects add column if not exists category text not null default 'Assignments'
+  check (category in ('Assignments', 'Bi-Weekly', 'Mid-Term'));
+-- Admin-curated reference / documentation shown to students in the Solve
+-- sidebar. Markdown. Kept inside the app on purpose so it works under Safe
+-- Exam Browser without widening the URL allow-list.
+alter table public.projects add column if not exists reference_md text;
 
 create table if not exists public.project_assets (
   id uuid primary key default gen_random_uuid(),
@@ -79,6 +90,41 @@ create table if not exists public.submissions (
 create index if not exists submissions_assignment_idx on public.submissions (assignment_id);
 -- One submission per student per assignment
 create unique index if not exists submissions_one_per_student on public.submissions (assignment_id, student_id);
+-- true when the server turned a leftover draft into this submission
+alter table public.submissions add column if not exists auto_collected boolean not null default false;
+
+-- Admin's grading of a submission. One evaluation per submission.
+-- scores is a free-form jsonb (e.g. { correctness: 8, design: 7, code_quality: 9 })
+-- so the rubric can evolve without migrations.
+create table if not exists public.evaluations (
+  id uuid primary key default gen_random_uuid(),
+  submission_id uuid references public.submissions(id) on delete cascade not null unique,
+  scores jsonb not null default '{}'::jsonb,
+  total numeric not null default 0,
+  max_total numeric not null default 30,
+  feedback text not null default '',
+  -- Per-criterion feedback keyed by rubric key, e.g.
+  -- {"correctness":"...","design":"...","code_quality":"..."}
+  feedback_by_criterion jsonb not null default '{}'::jsonb,
+  graded_by uuid references public.profiles(id) on delete set null,
+  graded_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+-- Keep an older deployed table in sync (idempotent).
+alter table public.evaluations
+  add column if not exists feedback_by_criterion jsonb not null default '{}'::jsonb;
+create index if not exists evaluations_submission_idx on public.evaluations (submission_id);
+
+-- Server-side autosave of in-progress work. Survives browser/device changes.
+-- Row is upserted on every change (debounced client-side) and deleted on submit.
+create table if not exists public.submission_drafts (
+  assignment_id uuid references public.assignments(id) on delete cascade not null,
+  student_id uuid references public.profiles(id) on delete cascade not null,
+  files jsonb not null,
+  folders jsonb not null default '[]'::jsonb,
+  updated_at timestamptz not null default now(),
+  primary key (assignment_id, student_id)
+);
 
 -- ---------- Helpers --------------------------------------------------
 
@@ -99,11 +145,12 @@ $$;
 create or replace function public.handle_new_user() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin
-  insert into public.profiles (id, email, full_name, campus, semester, section)
+  insert into public.profiles (id, email, full_name, uid, campus, semester, section)
   values (
     new.id,
     lower(new.email),
     nullif(new.raw_user_meta_data->>'full_name', ''),
+    nullif(trim(new.raw_user_meta_data->>'uid'), ''),
     nullif(new.raw_user_meta_data->>'campus', ''),
     nullif(new.raw_user_meta_data->>'semester', ''),
     nullif(new.raw_user_meta_data->>'section', '')
@@ -112,6 +159,12 @@ begin
   return new;
 end; $$;
 
+-- Backfill UIDs entered at signup before the uid column existed.
+update public.profiles p
+set uid = nullif(trim(u.raw_user_meta_data->>'uid'), '')
+from auth.users u
+where u.id = p.id and p.uid is null and nullif(trim(u.raw_user_meta_data->>'uid'), '') is not null;
+
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
@@ -119,11 +172,13 @@ create trigger on_auth_user_created
 
 -- ---------- RLS ------------------------------------------------------
 
-alter table public.profiles         enable row level security;
-alter table public.projects         enable row level security;
-alter table public.project_assets   enable row level security;
-alter table public.assignments      enable row level security;
-alter table public.submissions      enable row level security;
+alter table public.profiles           enable row level security;
+alter table public.projects           enable row level security;
+alter table public.project_assets     enable row level security;
+alter table public.assignments        enable row level security;
+alter table public.submissions        enable row level security;
+alter table public.submission_drafts  enable row level security;
+alter table public.evaluations        enable row level security;
 
 -- profiles
 drop policy if exists profiles_self_read   on public.profiles;
@@ -187,6 +242,79 @@ create policy submissions_self_write on public.submissions for insert with check
       and now() <= a.ends_at + interval '30 seconds'
   )
 );
+
+-- submission_drafts (student RW own draft, admin read, within the assignment window)
+drop policy if exists drafts_self_rw      on public.submission_drafts;
+drop policy if exists drafts_admin_read   on public.submission_drafts;
+create policy drafts_self_rw on public.submission_drafts
+  for all
+  using (student_id = auth.uid())
+  with check (
+    student_id = auth.uid()
+    and exists (
+      select 1 from public.assignments a
+      where a.id = submission_drafts.assignment_id
+        and (a.is_public or lower(a.assignee_email) = public.current_email())
+        and now() <= a.ends_at + interval '30 seconds'
+    )
+  );
+create policy drafts_admin_read on public.submission_drafts for select using (public.is_admin());
+
+-- evaluations: admin RW, student may read their own grade
+drop policy if exists evaluations_admin_all   on public.evaluations;
+drop policy if exists evaluations_self_read   on public.evaluations;
+create policy evaluations_admin_all on public.evaluations
+  for all using (public.is_admin()) with check (public.is_admin());
+create policy evaluations_self_read on public.evaluations for select using (
+  exists (
+    select 1 from public.submissions s
+    where s.id = evaluations.submission_id and s.student_id = auth.uid()
+  )
+);
+
+-- ---------- Server-side auto-submit ---------------------------------
+-- The browser auto-submits only while the Solve page is open at the deadline.
+-- This collects every draft left behind (laptop closed, crash, reboot, no
+-- network) into a submission once the deadline has passed, so the last
+-- autosave (saved every ~3 s) always arrives. Students who already
+-- submitted keep their submission.
+create or replace function public.collect_expired_drafts() returns integer
+language plpgsql security definer set search_path = public as $$
+declare collected integer;
+begin
+  -- 1 minute: past the 30-second grace the draft and submission policies allow.
+  insert into public.submissions (assignment_id, student_id, files, submitted_at, auto_collected)
+  select d.assignment_id, d.student_id, d.files, d.updated_at, true
+  from public.submission_drafts d
+  join public.assignments a on a.id = d.assignment_id
+  where now() > a.ends_at + interval '1 minute'
+  on conflict (assignment_id, student_id) do nothing;
+  get diagnostics collected = row_count;
+
+  delete from public.submission_drafts d
+  using public.assignments a
+  where a.id = d.assignment_id and now() > a.ends_at + interval '1 minute';
+
+  return collected;
+end; $$;
+revoke all on function public.collect_expired_drafts() from public, anon, authenticated;
+
+-- Run it every minute with pg_cron. Re-running replaces the job (same name).
+-- A failure here only skips the schedule (with a notice); the rest of this
+-- file still applies. Alternative: Dashboard → Integrations → Cron.
+do $$
+begin
+  if not exists (select 1 from pg_available_extensions where name = 'pg_cron') then
+    raise notice 'pg_cron is not available here: drafts will not be auto-collected.';
+    return;
+  end if;
+  create extension if not exists pg_cron with schema pg_catalog;
+  grant usage on schema cron to postgres;
+  grant all privileges on all tables in schema cron to postgres;
+  perform cron.schedule('collect-expired-drafts', '* * * * *', 'select public.collect_expired_drafts()');
+exception when others then
+  raise notice 'Could not schedule draft collection (%). Enable pg_cron under Dashboard → Integrations → Cron and run this file again.', sqlerrm;
+end $$;
 
 -- ---------- Storage bucket for assets --------------------------------
 -- Run once; safe to re-run.

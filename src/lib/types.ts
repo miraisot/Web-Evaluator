@@ -6,25 +6,12 @@ export const CAMPUSES: Campus[] = ['Hi-Tech', 'RGIB', 'JU', 'Dummy']
 export const SECTIONS = ['A', 'B', 'C', 'D', 'Dummy'] as const
 export const SEMESTERS = ['1', '2', '3', '4', '5', '6', '7', '8', 'Dummy'] as const
 
-// ---------- MERN assignment support ---------------------------------
-// A project's `project_type` decides which editor + submission UI the
-// student (and admin viewer) renders. Defaults to 'live_preview' so
-// every existing project keeps working unchanged.
-export type ProjectType = 'live_preview' | 'code_review' | 'external_link'
-export const PROJECT_TYPES: ProjectType[] = ['live_preview', 'code_review', 'external_link']
-export const PROJECT_TYPE_LABELS: Record<ProjectType, string> = {
-  live_preview: 'Live preview (HTML/CSS/JS)',
-  code_review: 'Code review (MERN / any language)',
-  external_link: 'External link submission (GitHub + deployed URL)',
-}
-
-export type SubmissionType = 'code' | 'external_link'
-
 export interface Profile {
   id: string
   email: string
   role: Role
   full_name?: string | null
+  uid?: string | null       // university ID, entered at signup
   campus?: Campus | null
   semester?: string | null
   section?: string | null
@@ -32,12 +19,18 @@ export interface Profile {
 
 export type FileMap = Record<string, string>
 
+export type ProjectType = 'html' | 'react'
+
 export interface Project {
   id: string
   title: string
   description: string
-  starter_files: FileMap
   project_type: ProjectType
+  category: Category
+  starter_files: FileMap
+  expected_output_url?: string | null
+  expected_output_path?: string | null
+  reference_md?: string | null
   created_at: string
 }
 
@@ -66,9 +59,58 @@ export interface Submission {
   assignment_id: string
   student_id: string
   files: FileMap
-  submission_type: SubmissionType
-  repo_url: string | null
-  deployed_url: string | null
-  notes: string | null
   submitted_at: string
+  // Collected by the server from the last autosave after the deadline;
+  // submitted_at is then the time of that autosave.
+  auto_collected?: boolean
+}
+
+export type RubricCriterion = { key: string; label: string; max: number; desc?: string }
+
+export const HTML_RUBRIC: RubricCriterion[] = [
+  { key: 'correctness',  label: 'Correctness',  max: 10, desc: 'Met the stated requirements; expected elements/sections present and not broken.' },
+  { key: 'design',       label: 'Design / UI',  max: 10, desc: 'Visual appeal, consistent styling, Flexbox/Grid usage, responsive layout.' },
+  { key: 'code_quality', label: 'Code Quality', max: 10, desc: 'Semantic markup, well-named classes, clean structure, no obvious bugs.' },
+]
+
+export const REACT_RUBRIC: RubricCriterion[] = [
+  { key: 'correctness',   label: 'Correctness',   max: 10, desc: 'Met the stated requirements; expected features present and the app renders without errors.' },
+  { key: 'functionality', label: 'Functionality', max: 10, desc: 'State, data flow, user interactions and conditional rendering actually work.' },
+  { key: 'code_quality',  label: 'Code Quality',  max: 10, desc: 'Component structure, hooks used correctly, clean naming, no obvious bugs.' },
+]
+
+export function rubricFor(projectType: ProjectType | undefined | null): RubricCriterion[] {
+  return projectType === 'react' ? REACT_RUBRIC : HTML_RUBRIC
+}
+
+export type Course = 'WEB 101' | 'WEB 301'
+export const COURSES: Course[] = ['WEB 101', 'WEB 301']
+export function courseFor(projectType: ProjectType | undefined | null): Course {
+  return projectType === 'react' ? 'WEB 301' : 'WEB 101'
+}
+
+export type Category = 'Assignments' | 'Bi-Weekly' | 'Mid-Term'
+export const CATEGORIES: Category[] = ['Assignments', 'Bi-Weekly', 'Mid-Term']
+export function categoryFor(project: Pick<Project, 'category' | 'title'> | null | undefined): Category {
+  if (!project) return 'Assignments'
+  if (project.category && (CATEGORIES as string[]).includes(project.category)) return project.category as Category
+  // Fallback for rows the migration hasn't touched yet.
+  return (project.title || '').toUpperCase().includes('SAMPLE') ? 'Bi-Weekly' : 'Mid-Term'
+}
+
+// Back-compat: default export used by code that doesn't know the project type.
+export const RUBRIC: RubricCriterion[] = HTML_RUBRIC
+export const RUBRIC_MAX = HTML_RUBRIC.reduce((n, r) => n + r.max, 0)
+
+export interface Evaluation {
+  id: string
+  submission_id: string
+  scores: Record<string, number>
+  total: number
+  max_total: number
+  feedback: string
+  feedback_by_criterion: Record<string, string>
+  graded_by: string | null
+  graded_at: string
+  updated_at: string
 }

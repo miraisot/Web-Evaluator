@@ -16,6 +16,7 @@ export default function Login() {
   const [confirmPassword, setConfirmPassword] = useState('')
   // Signup extras
   const [fullName, setFullName] = useState('')
+  const [uid, setUid] = useState('')
   const [campus, setCampus] = useState('')
   const [semester, setSemester] = useState('')
   const [section, setSection] = useState('')
@@ -32,14 +33,23 @@ export default function Login() {
     setMode(next); setErr(null); setInfo(null); setSentTo(null)
   }
 
-  // ---------- Post-signup "check your email" screen ----------
+  // ---------- Post-signup / forgot "check your email" screen ----------
   if (sentTo) {
     async function resend() {
-      setResending(true); setErr(null)
-      const { error } = await supabase.auth.resend({ type: 'signup', email: sentTo! })
-      setResending(false)
-      if (error) setErr(error.message)
-      else setInfo('Verification email resent.')
+      setResending(true); setErr(null); setInfo(null)
+      if (mode === 'forgot') {
+        const { error } = await supabase.auth.resetPasswordForEmail(sentTo!, {
+          redirectTo: `${window.location.origin}/reset-password`,
+        })
+        setResending(false)
+        if (error) setErr(error.message)
+        else setInfo('Reset email resent.')
+      } else {
+        const { error } = await supabase.auth.resend({ type: 'signup', email: sentTo! })
+        setResending(false)
+        if (error) setErr(error.message)
+        else setInfo('Verification email resent.')
+      }
     }
     return (
       <div className="min-h-screen grid place-items-center p-6">
@@ -79,12 +89,26 @@ export default function Login() {
     }
 
     if (mode === 'forgot') {
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/reset-password`,
-      })
+      const redirectTo = `${window.location.origin}/reset-password`
+      // eslint-disable-next-line no-console
+      console.log('[forgot-password] requesting reset for', email, '→', redirectTo)
+      const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo })
       setBusy(false)
-      if (error) setErr(error.message)
-      else setSentTo(email)
+      if (error) {
+        // eslint-disable-next-line no-console
+        console.error('[forgot-password] supabase error:', error)
+        if (/sending|smtp|rate|limit/i.test(error.message)) {
+          setErr(
+            `${error.message}. This is a Supabase email-delivery problem, not a bug in the form. ` +
+            `Check Auth → Email Templates and Auth → URL Configuration in the Supabase dashboard, ` +
+            `and set up custom SMTP if you haven't (built-in email is rate-limited to ~3/hour).`
+          )
+        } else {
+          setErr(error.message)
+        }
+      } else {
+        setSentTo(email)
+      }
       return
     }
 
@@ -95,6 +119,10 @@ export default function Login() {
     if (!fullName.trim()) {
       setBusy(false); setErr('Please enter your name'); return
     }
+    const cleanUid = uid.replace(/\s+/g, '').toUpperCase()
+    if (!cleanUid) {
+      setBusy(false); setErr('Please enter your UID'); return
+    }
 
     const { data, error } = await supabase.auth.signUp({
       email, password,
@@ -102,6 +130,7 @@ export default function Login() {
         emailRedirectTo: `${window.location.origin}/`,
         data: {
           full_name: fullName.trim(),
+          uid: cleanUid,
           campus: campus.trim(),
           semester: semester.trim(),
           section: section.trim(),
@@ -125,6 +154,17 @@ export default function Login() {
             <div>
               <label className="label">Full name</label>
               <input className="input" value={fullName} onChange={e => setFullName(e.target.value)} required />
+            </div>
+            <div>
+              <label className="label">UID</label>
+              <input
+                className="input font-mono uppercase placeholder:normal-case placeholder:font-sans"
+                value={uid}
+                onChange={e => setUid(e.target.value)}
+                placeholder="Your university ID"
+                autoComplete="off"
+                required
+              />
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div>

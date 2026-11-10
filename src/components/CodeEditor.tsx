@@ -3,8 +3,11 @@ import Editor from '@monaco-editor/react'
 const langForFile = (name: string) => {
   if (name.endsWith('.html')) return 'html'
   if (name.endsWith('.css')) return 'css'
-  if (name.endsWith('.js')) return 'javascript'
+  if (name.endsWith('.jsx') || name.endsWith('.tsx')) return 'typescript'
+  if (name.endsWith('.ts')) return 'typescript'
+  if (name.endsWith('.js') || name.endsWith('.mjs')) return 'javascript'
   if (name.endsWith('.json')) return 'json'
+  if (name.endsWith('.md')) return 'markdown'
   return 'plaintext'
 }
 
