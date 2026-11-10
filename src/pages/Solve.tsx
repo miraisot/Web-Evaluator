@@ -8,6 +8,9 @@ import ReactPreview from '../components/ReactPreview'
 import Markdown from '../components/Markdown'
 import FileTree from '../components/FileTree'
 import type { Assignment, FileMap, Project, ProjectAsset, ProjectType } from '../lib/types'
+// Bundled reference docs served from inside the app so they work under
+// Safe Exam Browser without widening the URL allow-list.
+import reactReferenceMd from '../docs/react-reference.md?raw'
 
 type AssignmentRow = Assignment & { project: Project }
 
@@ -705,46 +708,59 @@ export default function Solve() {
             </div>
           </div>
 
-          <div className="shrink-0 border-b border-vs-border">
-            <div className="flex items-center hover:bg-vs-panel transition-colors">
-              <button
-                onClick={() => setReferenceCollapsed(c => !c)}
-                className="flex-1 flex items-center gap-2 pl-3 py-2 text-left"
-                title="Documentation and reference material for this assignment"
-              >
-                <span className="text-vs-mute text-xs">{referenceCollapsed ? '▸' : '▾'}</span>
-                <span className="text-xs uppercase tracking-wide text-vs-mute">📖 Reference</span>
-                {assignment.project.reference_md && (
-                  <span className="text-[11px] text-vs-mute">· available</span>
-                )}
-              </button>
-              {assignment.project.reference_md && (
-                <button
-                  onClick={() => setReferenceOpen(true)}
-                  className="px-2 py-2 text-[11px] text-vs-accent hover:underline"
-                >⤢ Expand</button>
-              )}
-            </div>
-            {!referenceCollapsed && (
-              <div className="px-3 pb-3 max-h-72 overflow-auto">
-                {assignment.project.reference_md ? (
-                  <>
-                    <Markdown source={assignment.project.reference_md} />
-                    {assignment.project.reference_md.length > 400 && (
-                      <button
-                        className="mt-2 text-xs text-vs-accent hover:underline"
-                        onClick={() => setReferenceOpen(true)}
-                      >Read full reference →</button>
+          {(() => {
+            const isReact = assignment.project.project_type === 'react'
+            const adminRef = assignment.project.reference_md?.trim()
+            // React projects always have the bundled React quick reference.
+            // Admins can prepend project-specific notes with reference_md.
+            const combinedRef = isReact
+              ? (adminRef
+                  ? `${adminRef}\n\n---\n\n${reactReferenceMd}`
+                  : reactReferenceMd)
+              : (adminRef || '')
+            const hasRef = combinedRef.length > 0
+            const badge = isReact
+              ? (adminRef ? '· project notes + React docs' : '· React docs')
+              : (adminRef ? '· available' : '')
+            return (
+              <div className="shrink-0 border-b border-vs-border">
+                <div className="flex items-center hover:bg-vs-panel transition-colors">
+                  <button
+                    onClick={() => setReferenceCollapsed(c => !c)}
+                    className="flex-1 flex items-center gap-2 pl-3 py-2 text-left"
+                    title="Documentation and reference material for this assignment"
+                  >
+                    <span className="text-vs-mute text-xs">{referenceCollapsed ? '▸' : '▾'}</span>
+                    <span className="text-xs uppercase tracking-wide text-vs-mute">📖 Reference</span>
+                    {badge && <span className="text-[11px] text-vs-mute">{badge}</span>}
+                  </button>
+                  {hasRef && (
+                    <button
+                      onClick={() => setReferenceOpen(true)}
+                      className="px-2 py-2 text-[11px] text-vs-accent hover:underline"
+                    >⤢ Expand</button>
+                  )}
+                </div>
+                {!referenceCollapsed && (
+                  <div className="px-3 pb-3 max-h-72 overflow-auto">
+                    {hasRef ? (
+                      <>
+                        <Markdown source={combinedRef} />
+                        <button
+                          className="mt-2 text-xs text-vs-accent hover:underline"
+                          onClick={() => setReferenceOpen(true)}
+                        >Read full reference →</button>
+                      </>
+                    ) : (
+                      <div className="text-xs text-vs-mute leading-relaxed">
+                        No reference material was attached for this assignment. Your instructor can add quick docs, snippets, or a cheatsheet here.
+                      </div>
                     )}
-                  </>
-                ) : (
-                  <div className="text-xs text-vs-mute leading-relaxed">
-                    No reference material was attached for this assignment. Your instructor can add quick docs, snippets, or a cheatsheet here.
                   </div>
                 )}
               </div>
-            )}
-          </div>
+            )
+          })()}
 
           <div className="shrink-0">
             <button
@@ -943,34 +959,42 @@ export default function Solve() {
       )}
 
       {/* Reference reader modal */}
-      {referenceOpen && assignment.project.reference_md && (
-        <div
-          className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-6"
-          onClick={() => setReferenceOpen(false)}
-        >
+      {referenceOpen && (() => {
+        const isReact = assignment.project.project_type === 'react'
+        const adminRef = assignment.project.reference_md?.trim()
+        const combinedRef = isReact
+          ? (adminRef ? `${adminRef}\n\n---\n\n${reactReferenceMd}` : reactReferenceMd)
+          : (adminRef || '')
+        if (!combinedRef) return null
+        return (
           <div
-            onClick={e => e.stopPropagation()}
-            className="w-full max-w-3xl max-h-[85vh] bg-vs-sidebar border border-vs-border rounded-lg shadow-2xl flex flex-col"
+            className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-6"
+            onClick={() => setReferenceOpen(false)}
           >
-            <header className="flex items-center justify-between px-6 py-3 border-b border-vs-border">
-              <div>
-                <div className="text-[11px] uppercase tracking-wide text-vs-mute">📖 Reference</div>
-                <h2 className="font-semibold text-vs-text">{assignment.project.title}</h2>
+            <div
+              onClick={e => e.stopPropagation()}
+              className="w-full max-w-3xl max-h-[85vh] bg-vs-sidebar border border-vs-border rounded-lg shadow-2xl flex flex-col"
+            >
+              <header className="flex items-center justify-between px-6 py-3 border-b border-vs-border">
+                <div>
+                  <div className="text-[11px] uppercase tracking-wide text-vs-mute">📖 Reference</div>
+                  <h2 className="font-semibold text-vs-text">{assignment.project.title}</h2>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-vs-mute">Esc to close</span>
+                  <button
+                    className="btn-ghost"
+                    onClick={() => setReferenceOpen(false)}
+                  >Close ✕</button>
+                </div>
+              </header>
+              <div className="overflow-auto px-8 py-6">
+                <Markdown source={combinedRef} className="prose-md-lg" />
               </div>
-              <div className="flex items-center gap-3">
-                <span className="text-xs text-vs-mute">Esc to close</span>
-                <button
-                  className="btn-ghost"
-                  onClick={() => setReferenceOpen(false)}
-                >Close ✕</button>
-              </div>
-            </header>
-            <div className="overflow-auto px-8 py-6">
-              <Markdown source={assignment.project.reference_md} className="prose-md-lg" />
             </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {/* Problem reader modal */}
       {problemOpen && (
