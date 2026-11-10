@@ -30,6 +30,7 @@ export interface Project {
   starter_files: FileMap
   expected_output_url?: string | null
   expected_output_path?: string | null
+  reference_md?: string | null
   created_at: string
 }
 

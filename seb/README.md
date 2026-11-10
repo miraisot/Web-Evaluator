@@ -42,6 +42,13 @@ Two files with the same settings:
 student code runs inside the preview, so any allowed site could be opened
 there (an online IDE or a GitHub file with a prepared solution).
 
+Documentation for the student (React cheatsheet, API notes, etc.) is served
+by the app itself — the admin attaches it per-project under *Reference /
+documentation*, and students open it from the Solve sidebar. No extra
+hostnames needed here: keeping docs inside the app is deliberate, so
+`react.dev` / `developer.mozilla.org` stay blocked and their search can't
+be used to find prepared solutions.
+
 ## If the dry run shows a problem
 
 - **React preview stuck on "Downloading dependencies" or shows a fetch

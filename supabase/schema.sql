@@ -40,6 +40,10 @@ alter table public.projects add column if not exists project_type text not null 
   check (project_type in ('html', 'react'));
 alter table public.projects add column if not exists category text not null default 'Assignments'
   check (category in ('Assignments', 'Bi-Weekly', 'Mid-Term'));
+-- Admin-curated reference / documentation shown to students in the Solve
+-- sidebar. Markdown. Kept inside the app on purpose so it works under Safe
+-- Exam Browser without widening the URL allow-list.
+alter table public.projects add column if not exists reference_md text;
 
 create table if not exists public.project_assets (
   id uuid primary key default gen_random_uuid(),

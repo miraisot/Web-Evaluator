@@ -94,6 +94,7 @@ export default function ProjectEdit() {
         starter_files: files,
         expected_output_url: project.expected_output_url ?? null,
         expected_output_path: project.expected_output_path ?? null,
+        reference_md: project.reference_md ?? null,
       })
       .eq('id', project.id)
     setSaving(false)
@@ -376,6 +377,23 @@ export default function ProjectEdit() {
         ) : (
           <AssetTree assets={assets} onRemove={removeAsset} />
         )}
+      </div>
+
+      <div className="card">
+        <div className="flex items-center justify-between mb-2">
+          <div>
+            <h3 className="font-medium">Reference / documentation</h3>
+            <div className="text-xs text-vs-mute mt-0.5">
+              Shown to students in the Solve sidebar under “Reference”. Stays inside the app so it works under Safe Exam Browser. Markdown supported.
+            </div>
+          </div>
+        </div>
+        <MarkdownEditor
+          value={project.reference_md ?? ''}
+          onChange={v => setProject({ ...project, reference_md: v })}
+          placeholder={"# React quick reference\n\n## useState\n```jsx\nconst [count, setCount] = useState(0)\n```\n\n## Props\n…"}
+          minHeight={240}
+        />
       </div>
 
       <div className="card">
