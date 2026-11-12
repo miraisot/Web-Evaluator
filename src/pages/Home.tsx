@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
@@ -6,11 +6,14 @@ import type { Assignment, Project } from '../lib/types'
 
 type Row = Assignment & { project: Pick<Project, 'title' | 'description'> }
 
+type Filter = 'all' | 'new' | 'submitted'
+
 export default function Home() {
   const { profile, signOut } = useAuth()
   const [rows, setRows] = useState<Row[]>([])
   const [submittedAt, setSubmittedAt] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
+  const [filter, setFilter] = useState<Filter>('all')
 
   useEffect(() => {
     (async () => {
@@ -43,6 +46,31 @@ export default function Home() {
     return Boolean(submittedAt[r.id])
   })
 
+  // "New" = still open and not yet submitted. Everything else that's in the
+  // visible set is either submitted or upcoming; the Submitted tab is the
+  // obvious counterpart, All shows both plus upcoming.
+  const counts = useMemo(() => {
+    let nNew = 0, nSub = 0
+    for (const r of visibleRows) {
+      if (submittedAt[r.id]) nSub++
+      else {
+        const start = new Date(r.starts_at).getTime()
+        const end = new Date(r.ends_at).getTime()
+        if (now >= start && now <= end) nNew++
+      }
+    }
+    return { all: visibleRows.length, new: nNew, submitted: nSub }
+  }, [visibleRows, submittedAt, now])
+
+  const filteredRows = visibleRows.filter(r => {
+    if (filter === 'all') return true
+    const submitted = Boolean(submittedAt[r.id])
+    if (filter === 'submitted') return submitted
+    const start = new Date(r.starts_at).getTime()
+    const end = new Date(r.ends_at).getTime()
+    return !submitted && now >= start && now <= end
+  })
+
   return (
     <div className="min-h-screen">
       <header className="border-b border-vs-border px-4 py-3 flex items-center justify-between">
@@ -55,11 +83,32 @@ export default function Home() {
       </header>
 
       <main className="max-w-3xl mx-auto p-6">
-        <h2 className="text-lg mb-4">Your assignments</h2>
+        <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
+          <h2 className="text-lg">Your assignments</h2>
+          <div className="inline-flex rounded border border-vs-border overflow-hidden text-xs">
+            {([
+              ['all', `All (${counts.all})`],
+              ['new', `New (${counts.new})`],
+              ['submitted', `Submitted (${counts.submitted})`],
+            ] as const).map(([k, label]) => (
+              <button
+                key={k}
+                onClick={() => setFilter(k)}
+                className={`px-3 py-1.5 transition-colors ${filter === k ? 'bg-vs-panel text-vs-text' : 'text-vs-mute hover:text-vs-text'}`}
+              >{label}</button>
+            ))}
+          </div>
+        </div>
         {loading ? <div className="text-vs-mute">Loading…</div> :
-          visibleRows.length === 0 ? <div className="text-vs-mute">Nothing assigned yet.</div> :
+          filteredRows.length === 0 ? (
+            <div className="text-vs-mute">
+              {filter === 'new' ? 'No new assignments right now.'
+                : filter === 'submitted' ? 'Nothing submitted yet.'
+                : 'Nothing assigned yet.'}
+            </div>
+          ) :
           <ul className="space-y-3">
-            {visibleRows.map(r => {
+            {filteredRows.map(r => {
               const start = new Date(r.starts_at).getTime()
               const end = new Date(r.ends_at).getTime()
               const open = now >= start && now <= end

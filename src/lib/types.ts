@@ -5,6 +5,9 @@ export const CAMPUSES: Campus[] = ['Hi-Tech', 'RGIB', 'JU', 'Dummy']
 
 export const SECTIONS = ['A', 'B', 'C', 'D', 'Dummy'] as const
 export const SEMESTERS = ['1', '2', '3', '4', '5', '6', '7', '8', 'Dummy'] as const
+// Admitted batch, named by graduation year.
+export const BATCHES = ['2025', '2026'] as const
+export type Batch = typeof BATCHES[number]
 
 export interface Profile {
   id: string
@@ -15,6 +18,16 @@ export interface Profile {
   campus?: Campus | null
   semester?: string | null
   section?: string | null
+  batch?: Batch | string | null
+}
+
+export interface StudentRosterRow {
+  email: string
+  name: string | null
+  uid: string | null
+  campus: Campus | null
+  batch: string
+  created_at?: string
 }
 
 export type FileMap = Record<string, string>

@@ -12,6 +12,10 @@ backups/
 # Exam rosters and student→problem lists (student emails)
 exam-data/
 
+# Student roster seed with real names, UIDs, and personal emails.
+# Generated from Student DB.xlsx and run in Supabase SQL editor only.
+supabase/seed_students.sql
+
 # SEB config with the quit-password hash (a short password is crackable from
 # its hash, and this repo is public). The template without it stays tracked.
 seb/web-eval-exam.seb
