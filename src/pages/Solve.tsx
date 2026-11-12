@@ -86,7 +86,6 @@ export default function Solve() {
   const [problemOpen, setProblemOpen] = useState(false)   // fullscreen reader
   const [problemCollapsed, setProblemCollapsed] = useState(false)
   const [assetsCollapsed, setAssetsCollapsed] = useState(false)
-  const [referenceCollapsed, setReferenceCollapsed] = useState(true)
   const [referenceOpen, setReferenceOpen] = useState(false)   // fullscreen reader
   const [expectedOpen, setExpectedOpen] = useState(false)
   const [autoSubmitted, setAutoSubmitted] = useState<null | 'ok' | 'fail'>(null)
@@ -724,40 +723,22 @@ export default function Solve() {
               : (adminRef ? '· available' : '')
             return (
               <div className="shrink-0 border-b border-vs-border">
-                <div className="flex items-center hover:bg-vs-panel transition-colors">
-                  <button
-                    onClick={() => setReferenceCollapsed(c => !c)}
-                    className="flex-1 flex items-center gap-2 pl-3 py-2 text-left"
-                    title="Documentation and reference material for this assignment"
-                  >
-                    <span className="text-vs-mute text-xs">{referenceCollapsed ? '▸' : '▾'}</span>
+                <div className="flex items-center">
+                  <div className="flex-1 flex items-center gap-2 pl-3 py-2">
                     <span className="text-xs uppercase tracking-wide text-vs-mute">📖 Reference</span>
                     {badge && <span className="text-[11px] text-vs-mute">{badge}</span>}
-                  </button>
+                    {!hasRef && (
+                      <span className="text-[11px] text-vs-mute italic">none</span>
+                    )}
+                  </div>
                   {hasRef && (
                     <button
                       onClick={() => setReferenceOpen(true)}
                       className="px-2 py-2 text-[11px] text-vs-accent hover:underline"
+                      title="Open reference in full view"
                     >⤢ Expand</button>
                   )}
                 </div>
-                {!referenceCollapsed && (
-                  <div className="px-3 pb-3 max-h-72 overflow-auto">
-                    {hasRef ? (
-                      <>
-                        <Markdown source={combinedRef} />
-                        <button
-                          className="mt-2 text-xs text-vs-accent hover:underline"
-                          onClick={() => setReferenceOpen(true)}
-                        >Read full reference →</button>
-                      </>
-                    ) : (
-                      <div className="text-xs text-vs-mute leading-relaxed">
-                        No reference material was attached for this assignment. Your instructor can add quick docs, snippets, or a cheatsheet here.
-                      </div>
-                    )}
-                  </div>
-                )}
               </div>
             )
           })()}
