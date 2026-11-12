@@ -13,7 +13,7 @@ export default function Home() {
   const [rows, setRows] = useState<Row[]>([])
   const [submittedAt, setSubmittedAt] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
-  const [filter, setFilter] = useState<Filter>('all')
+  const [filter, setFilter] = useState<Filter>('new')
 
   useEffect(() => {
     (async () => {
