@@ -4,7 +4,8 @@ import { supabase } from '../../lib/supabase'
 import MarkdownEditor from '../../components/MarkdownEditor'
 import type { Project, ProjectType, Category, Course } from '../../lib/types'
 import { CATEGORIES, categoryFor, COURSES, courseFor } from '../../lib/types'
-import { WEB301_TEMPLATES } from '../../exam-templates/web301'
+import { WEB301_TEMPLATES, WEB301_PRACTICE } from '../../exam-templates/web301'
+import { JU_TEMPLATES } from '../../exam-templates/ju'
 
 const REACT_STARTER = {
   'App.jsx':
@@ -58,7 +59,14 @@ export default function Projects() {
   function applyTemplate(id: string) {
     setTemplateId(id)
     if (!id) return
-    const tpl = WEB301_TEMPLATES.find(t => t.id === id)
+    const ju = JU_TEMPLATES.find(t => t.id === id)
+    if (ju) {
+      setType('html')
+      setTitle(ju.title)
+      setDesc(ju.description)
+      return
+    }
+    const tpl = [...WEB301_TEMPLATES, ...WEB301_PRACTICE].find(t => t.id === id)
     if (!tpl) return
     setType('react')
     setTitle(tpl.title)
@@ -81,7 +89,7 @@ export default function Projects() {
       category,
     }
     if (templateId) {
-      const tpl = WEB301_TEMPLATES.find(t => t.id === templateId)
+      const tpl = [...WEB301_TEMPLATES, ...WEB301_PRACTICE, ...JU_TEMPLATES].find(t => t.id === templateId)
       if (tpl) payload.starter_files = tpl.starter_files
     } else if (type === 'react') {
       // Only seed the basic React starter when no exam template is picked.
@@ -113,6 +121,46 @@ export default function Projects() {
     }
     setBulkBusy(false)
     alert(`Imported ${ok} / ${WEB301_TEMPLATES.length}` + (failed ? ` — ${failed} failed (see console)` : ''))
+    load()
+  }
+
+  async function importPractice() {
+    if (!confirm(`Create ${WEB301_PRACTICE.length} practice project(s): ${WEB301_PRACTICE.map(t => t.title).join(', ')}?`)) return
+    setBulkBusy(true)
+    let ok = 0, failed = 0
+    for (const tpl of WEB301_PRACTICE) {
+      const { error } = await supabase.from('projects').insert({
+        title: tpl.title,
+        description: tpl.description,
+        project_type: 'react',
+        category,
+        starter_files: tpl.starter_files,
+      })
+      if (error) { failed++; console.error(tpl.id, error.message) }
+      else ok++
+    }
+    setBulkBusy(false)
+    alert(`Imported ${ok} / ${WEB301_PRACTICE.length}` + (failed ? ` — ${failed} failed (see console)` : ''))
+    load()
+  }
+
+  async function importJu() {
+    if (!confirm(`Create ${JU_TEMPLATES.length} JU practical projects: ${JU_TEMPLATES.map(t => t.title).join(', ')}?`)) return
+    setBulkBusy(true)
+    let ok = 0, failed = 0
+    for (const tpl of JU_TEMPLATES) {
+      const { error } = await supabase.from('projects').insert({
+        title: tpl.title,
+        description: tpl.description,
+        project_type: 'html',
+        category,
+        starter_files: tpl.starter_files,
+      })
+      if (error) { failed++; console.error(tpl.id, error.message) }
+      else ok++
+    }
+    setBulkBusy(false)
+    alert(`Imported ${ok} / ${JU_TEMPLATES.length}` + (failed ? ` — ${failed} failed (see console)` : ''))
     load()
   }
 
@@ -167,6 +215,16 @@ export default function Projects() {
                 <option key={t.id} value={t.id}>{t.title}</option>
               ))}
             </optgroup>
+            <optgroup label="WEB 301 Practice (not graded)">
+              {WEB301_PRACTICE.map(t => (
+                <option key={t.id} value={t.id}>{t.title}</option>
+              ))}
+            </optgroup>
+            <optgroup label="JU Web Development Practical">
+              {JU_TEMPLATES.map(t => (
+                <option key={t.id} value={t.id}>{t.title}</option>
+              ))}
+            </optgroup>
           </select>
           <div className="flex items-center justify-between mt-1">
             <div className="text-[11px] text-vs-mute">
@@ -180,6 +238,22 @@ export default function Projects() {
               onClick={importAllWeb301}
               disabled={bulkBusy}
             >{bulkBusy ? 'Importing…' : 'Import all 10 →'}</button>
+          </div>
+          <div className="flex justify-end mt-1">
+            <button
+              type="button"
+              className="text-[11px] text-vs-accent hover:underline"
+              onClick={importPractice}
+              disabled={bulkBusy}
+            >{bulkBusy ? 'Importing…' : 'Import practice question →'}</button>
+          </div>
+          <div className="flex justify-end mt-1">
+            <button
+              type="button"
+              className="text-[11px] text-vs-accent hover:underline"
+              onClick={importJu}
+              disabled={bulkBusy}
+            >{bulkBusy ? 'Importing…' : 'Import JU Q1–Q3 →'}</button>
           </div>
         </div>
         <div>

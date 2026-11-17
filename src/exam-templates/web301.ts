@@ -661,3 +661,55 @@ export const WEB301_SAMPLE: ExamTemplate = {
       [name, code.replaceAll('WEB 301 — Mid-Sem Phase 2', 'SAMPLE — React Practice')]),
   ),
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// R-Sample practice question: same format as P0–P9 (same scaffold, same title
+// pattern). Kept out of WEB301_TEMPLATES so "Import all 10" never picks it up;
+// the admin template dropdown lists it under its own group.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const MACHINES_JS = `export const machines = [
+  { id: 1, machineNumber: 'W-01', block: 'Block A', type: 'Washer', pricePerHour: 20, capacityKg: 6, cycleMinutes: 40, underMaintenance: false, isBooked: false },
+  { id: 2, machineNumber: 'D-01', block: 'Block A', type: 'Dryer',  pricePerHour: 25, capacityKg: 6, cycleMinutes: 30, underMaintenance: false, isBooked: false },
+  { id: 3, machineNumber: 'W-02', block: 'Block A', type: 'Washer', pricePerHour: 20, capacityKg: 8, cycleMinutes: 45, underMaintenance: true,  isBooked: false },
+  { id: 4, machineNumber: 'W-03', block: 'Block B', type: 'Washer', pricePerHour: 22, capacityKg: 7, cycleMinutes: 40, underMaintenance: false, isBooked: false },
+  { id: 5, machineNumber: 'D-02', block: 'Block B', type: 'Dryer',  pricePerHour: 25, capacityKg: 6, cycleMinutes: 35, underMaintenance: false, isBooked: false },
+  { id: 6, machineNumber: 'D-03', block: 'Block B', type: 'Dryer',  pricePerHour: 28, capacityKg: 8, cycleMinutes: 30, underMaintenance: true,  isBooked: false },
+  { id: 7, machineNumber: 'W-04', block: 'Block C', type: 'Washer', pricePerHour: 20, capacityKg: 6, cycleMinutes: 40, underMaintenance: false, isBooked: false },
+  { id: 8, machineNumber: 'D-04', block: 'Block C', type: 'Dryer',  pricePerHour: 25, capacityKg: 7, cycleMinutes: 35, underMaintenance: false, isBooked: false },
+]
+`
+
+const DESC_R_SAMPLE = `# R-Sample — Hostel Laundry Slot Booking
+
+> **Practice question, not graded.** Same format as the real exam problems (R0–R9). Your exam problem will be different.
+
+**File:** \`src/data/machines.js\` · **Routes:** \`/\` · \`/machines\` · \`/machines/:id\` · \`/my-booking\`
+
+Create a reusable \`MachineCard\` showing **machine number**, **block**, **type** (Washer/Dryer), **price per hour** and **status**.
+
+- **Badge:** \`In Use\` if \`isBooked === true\`, otherwise \`Available\`.
+- **Book** button → \`isBooked: true\`. **Cancel** button → \`isBooked: false\`.
+- **Special rule:** only one machine can be booked at a time. While a machine is booked, every other machine shows "Already booked another machine" instead of the Book button. A machine with \`underMaintenance: true\` shows "Under Maintenance" instead of the button (this **overrides** the booking rule).
+- **Dropdown filter:** type (All, Washer, Dryer).
+- **Details page** also shows **block name**, **capacity (kg)** and **estimated cycle time (minutes)**.
+- **Home** shows total machines, available machines count and your currently booked machine number (or "No booking yet").
+- **/my-booking** shows the currently booked machine's details with its price, or "You have not booked any machine".
+`
+
+const R_SAMPLE: ProblemConfig = {
+  id: 'r-sample', title: 'R-Sample-Hostel Laundry Slot Booking',
+  item: 'Machine', itemLower: 'machine', list: 'Machines', listPath: '/machines',
+  saved: 'MyBooking', savedPath: '/my-booking', savedVerb: 'booked',
+  datasetFile: 'machines.js', datasetExport: 'machines', dataset: MACHINES_JS, description: DESC_R_SAMPLE,
+}
+
+// Practice questions shown in the admin dropdown (not part of "Import all 10").
+export const WEB301_PRACTICE: ExamTemplate[] = [
+  {
+    id: 'web301-r-sample',
+    title: `WEB 301· ${R_SAMPLE.title}`,
+    description: R_SAMPLE.description,
+    starter_files: buildStarter(R_SAMPLE),
+  },
+]
