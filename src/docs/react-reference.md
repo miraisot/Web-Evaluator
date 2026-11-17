@@ -4,9 +4,6 @@ Bundled documentation for React assignments. Covers the common patterns you
 need in this editor: components, JSX, props, state, effects, event
 handlers, lists, forms, and routing.
 
-Based on the [official React docs](https://react.dev) — kept inside the app
-so it works under Safe Exam Browser.
-
 ---
 
 ## Components & JSX
