@@ -2,7 +2,7 @@ import { FormEvent, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
-import { CAMPUSES, SECTIONS, SEMESTERS } from '../lib/types'
+import { CAMPUSES, SECTIONS, SEMESTERS, sectionLabel } from '../lib/types'
 
 type Mode = 'signin' | 'signup' | 'forgot'
 
@@ -178,7 +178,7 @@ export default function Login() {
                 <label className="label">Section</label>
                 <select className="input" value={section} onChange={e => setSection(e.target.value)}>
                   <option value="">— choose —</option>
-                  {SECTIONS.map(s => <option key={s} value={s}>{s === 'Dummy' ? 'Dummy' : `Section ${s}`}</option>)}
+                  {SECTIONS.map(s => <option key={s} value={s}>{sectionLabel(s)}</option>)}
                 </select>
               </div>
             </div>
