@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { fetchAll } from '../lib/fetchAll'
 import { useAuth } from '../lib/auth'
 import BrandLogo from '../components/BrandLogo'
 import type { Assignment, Project } from '../lib/types'
@@ -18,14 +19,20 @@ export default function Home() {
 
   useEffect(() => {
     (async () => {
-      const [{ data: a }, { data: s }] = await Promise.all([
-        supabase
+      // Paged: an admin can read every row (more than the API's 1000 cap).
+      // Students only get their own rows, so for them this is one request.
+      const [a, s] = await Promise.all([
+        fetchAll((from, to) => supabase
           .from('assignments')
           .select('*, project:projects(title, description, project_type)')
-          .order('starts_at', { ascending: true }),
-        supabase
+          .order('starts_at', { ascending: true })
+          .order('id', { ascending: true })
+          .range(from, to)).catch(() => []),
+        fetchAll((from, to) => supabase
           .from('submissions')
-          .select('assignment_id, submitted_at'),
+          .select('id, assignment_id, submitted_at')
+          .order('id', { ascending: true })
+          .range(from, to)).catch(() => []),
       ])
       setRows((a as unknown as Row[]) || [])
       const map: Record<string, string> = {}

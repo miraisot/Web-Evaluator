@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../lib/auth'
 import { gradeSubmission, sleep } from '../../lib/aiGrade'
+import { fetchAll } from '../../lib/fetchAll'
 import type { Submission, Assignment, Project, Profile, Evaluation, Course, Category, Campus } from '../../lib/types'
 import { COURSES, courseFor, CATEGORIES, categoryFor, CAMPUSES, rubricFor } from '../../lib/types'
 
@@ -105,13 +106,19 @@ export default function Submissions() {
   const [cancelGrading, setCancelGrading] = useState(false)
 
   useEffect(() => {
-    supabase
-      .from('submissions')
-      // profiles(*) rather than a column list, so a missing optional column
-      // (e.g. uid before its migration runs) can't break the list.
-      .select('*, assignment:assignments(*, project:projects(title, project_type, category)), student:profiles(*), evaluation:evaluations(*)')
-      .order('submitted_at', { ascending: false })
-      .then(({ data }) => {
+    // Paged: there are more than 1000 submissions, the API's per-request cap.
+    fetchAll(
+      (from, to) => supabase
+        .from('submissions')
+        // profiles(*) rather than a column list, so a missing optional column
+        // (e.g. uid before its migration runs) can't break the list.
+        .select('*, assignment:assignments(*, project:projects(title, project_type, category)), student:profiles(*), evaluation:evaluations(*)')
+        .order('submitted_at', { ascending: false })
+        .order('id', { ascending: true })
+        .range(from, to),
+    )
+      .catch(e => { console.error('[submissions] load failed:', e); return [] })
+      .then(data => {
         const normalized = ((data as unknown as (Omit<Row, 'evaluation'> & { evaluation: Row['evaluation'] | Row['evaluation'][] })[]) || []).map(r => ({
           ...r,
           // Supabase returns 1:1 relations as an array; flatten to the single row.

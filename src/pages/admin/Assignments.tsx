@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../../lib/supabase'
+import { fetchAll } from '../../lib/fetchAll'
 import type { Assignment, Project, Category, Course, Campus } from '../../lib/types'
 import { CATEGORIES, categoryFor, COURSES, courseFor, CAMPUSES, BATCHES } from '../../lib/types'
 
@@ -60,9 +61,15 @@ export default function Assignments() {
   const [bulkBusy, setBulkBusy] = useState(false)
 
   async function load() {
-    const [{ data: p }, { data: a }] = await Promise.all([
+    const [{ data: p }, a] = await Promise.all([
       supabase.from('projects').select('id, title, project_type, category').order('created_at', { ascending: false }),
-      supabase.from('assignments').select('*, project:projects(title, project_type, category)').order('created_at', { ascending: false }),
+      // Paged: there are more than 1000 assignments, the API's per-request cap.
+      fetchAll((from, to) => supabase.from('assignments')
+        .select('*, project:projects(title, project_type, category)')
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: true })
+        .range(from, to))
+        .catch(e => { console.error('[assignments] load failed:', e); return [] }),
     ])
     setProjects((p as Project[]) || [])
     setRows((a as unknown as Row[]) || [])
