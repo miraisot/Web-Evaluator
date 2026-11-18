@@ -7,6 +7,8 @@ import Preview from '../components/Preview'
 import ReactPreview from '../components/ReactPreview'
 import Markdown from '../components/Markdown'
 import FileTree from '../components/FileTree'
+import QuizTaker from '../components/QuizTaker'
+import { isAnswered, normalizeQuiz } from '../lib/quiz'
 import type { Assignment, FileMap, Project, ProjectAsset, ProjectType } from '../lib/types'
 // Bundled reference docs served from inside the app so they work under
 // Safe Exam Browser without widening the URL allow-list.
@@ -161,7 +163,10 @@ export default function Solve() {
       // otherwise we'd end up with duplicate roots (e.g. /App.jsx AND
       // /src/App.jsx) which confuses Sandpack's entry resolution.
       const projectStarter = row.project.starter_files || {}
-      const starter = Object.keys(projectStarter).length > 0
+      // Quizzes have no files: `files` holds the answers, keyed by question id.
+      const starter = type === 'quiz'
+        ? {}
+        : Object.keys(projectStarter).length > 0
         ? projectStarter
         : defaultFilesFor(type)
       let serverDraft: { files: FileMap; folders: string[]; updated_at: string } | null = null
@@ -514,7 +519,14 @@ export default function Solve() {
     const now = Date.now()
     if (now < start) return alert('Not open yet')
     if (now > end) return alert('Submission window closed')
-    if (!confirm('Submit this version for evaluation?')) return
+    if (assignment.project.project_type === 'quiz') {
+      const qs = normalizeQuiz(assignment.project.quiz).questions
+      const left = qs.filter(q => !isAnswered(q, files)).length
+      const msg = left > 0
+        ? `${left} of ${qs.length} question(s) are unanswered. Submit anyway? You can't change answers after submitting.`
+        : `Submit your answers? You can't change them after submitting.`
+      if (!confirm(msg)) return
+    } else if (!confirm('Submit this version for evaluation?')) return
     setSubmitting(true)
     const { error } = await supabase
       .from('submissions')
@@ -642,6 +654,16 @@ export default function Solve() {
         </div>
       )}
 
+      {assignment.project.project_type === 'quiz' ? (
+        <QuizTaker
+          title={assignment.project.title}
+          instructions={assignment.project.description || ''}
+          quiz={normalizeQuiz(assignment.project.quiz)}
+          answers={files}
+          onChange={updateFile}
+          disabled={remaining === 'Time up' || submitting}
+        />
+      ) : (
       <div className="flex-1 flex min-h-0 relative">
         {/* Sidebar: problem + assets + files */}
         {sidebarOpen && !previewFull && (
@@ -898,6 +920,7 @@ export default function Solve() {
           </section>
         )}
       </div>
+      )}
 
       {/* Expected output modal */}
       {expectedOpen && assignment.project.expected_output_url && (

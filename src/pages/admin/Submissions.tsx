@@ -11,7 +11,7 @@ const GRADE_INTERVAL_MS = 5000  // 12 RPM — under Gemini free tier 15 RPM
 type Row = Submission & {
   assignment: Assignment & { project: Pick<Project, 'title' | 'project_type' | 'category'> }
   student: Profile | null
-  evaluation: Pick<Evaluation, 'total' | 'max_total' | 'graded_at' | 'scores' | 'feedback' | 'feedback_by_criterion'> | null
+  evaluation: Pick<Evaluation, 'total' | 'max_total' | 'graded_at' | 'scores' | 'feedback' | 'feedback_by_criterion' | 'pending_manual'> | null
 }
 
 const UNASSIGNED_CAMPUS = '(no campus)'
@@ -85,6 +85,11 @@ function campusKeyFor(row: Row): CampusKey {
   return (STUDENT_CAMPUSES as string[]).includes(c) ? (c as Campus) : UNASSIGNED_CAMPUS
 }
 
+// A quiz with paragraph answers still to read counts as ungraded.
+function isGraded(r: Row): boolean {
+  return !!r.evaluation && !r.evaluation.pending_manual
+}
+
 export default function Submissions() {
   const { profile } = useAuth()
   const [rows, setRows] = useState<Row[]>([])
@@ -104,7 +109,7 @@ export default function Submissions() {
       .from('submissions')
       // profiles(*) rather than a column list, so a missing optional column
       // (e.g. uid before its migration runs) can't break the list.
-      .select('*, assignment:assignments(*, project:projects(title, project_type, category)), student:profiles(*), evaluation:evaluations(total,max_total,graded_at,scores,feedback,feedback_by_criterion)')
+      .select('*, assignment:assignments(*, project:projects(title, project_type, category)), student:profiles(*), evaluation:evaluations(*)')
       .order('submitted_at', { ascending: false })
       .then(({ data }) => {
         const normalized = ((data as unknown as (Omit<Row, 'evaluation'> & { evaluation: Row['evaluation'] | Row['evaluation'][] })[]) || []).map(r => ({
@@ -119,8 +124,8 @@ export default function Submissions() {
 
   const counts = useMemo(() => ({
     all: rows.length,
-    graded: rows.filter(r => r.evaluation).length,
-    ungraded: rows.filter(r => !r.evaluation).length,
+    graded: rows.filter(isGraded).length,
+    ungraded: rows.filter(r => !isGraded(r)).length,
   }), [rows])
 
   const courseCounts = useMemo(() => {
@@ -151,8 +156,8 @@ export default function Submissions() {
   }, [rows])
 
   const filtered = rows.filter(r => {
-    if (gradeFilter === 'graded' && !r.evaluation) return false
-    if (gradeFilter === 'ungraded' && r.evaluation) return false
+    if (gradeFilter === 'graded' && !isGraded(r)) return false
+    if (gradeFilter === 'ungraded' && isGraded(r)) return false
     if (courseFilter !== 'all' && courseFor(r.assignment.project.project_type) !== courseFilter) return false
     if (categoryFilter !== 'all' && categoryFor(r.assignment.project) !== categoryFilter) return false
     if (campusFilter !== 'all' && campusKeyFor(r) !== campusFilter) return false
@@ -164,7 +169,9 @@ export default function Submissions() {
     return hay.includes(q.toLowerCase())
   })
 
-  const ungradedInView = filtered.filter(r => !r.evaluation)
+  // Quizzes are auto-graded on submit (paragraph answers by hand), so the
+  // Gemini "Grade all" never touches them.
+  const ungradedInView = filtered.filter(r => !r.evaluation && r.assignment.project.project_type !== 'quiz')
 
   async function runGradeAll() {
     if (grading) return
@@ -402,7 +409,14 @@ export default function Submissions() {
                 </div>
               </div>
               <div className="flex items-center gap-3 shrink-0">
-                {r.evaluation ? (
+                {r.evaluation?.pending_manual ? (
+                  <span
+                    className="text-xs px-2 py-1 rounded bg-amber-500/10 text-amber-300 border border-amber-500/30 font-mono"
+                    title="Choice questions were auto-graded; paragraph answers still need a grade."
+                  >
+                    {r.evaluation.total}/{r.evaluation.max_total} · {r.evaluation.pending_manual} to review
+                  </span>
+                ) : r.evaluation ? (
                   <span className="text-xs px-2 py-1 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 font-mono">
                     {r.evaluation.total}/{r.evaluation.max_total}
                   </span>

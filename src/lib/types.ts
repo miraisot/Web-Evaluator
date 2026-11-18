@@ -39,7 +39,38 @@ export interface StudentRosterRow {
 
 export type FileMap = Record<string, string>
 
-export type ProjectType = 'html' | 'react'
+export type ProjectType = 'html' | 'react' | 'quiz'
+
+export function projectTypeLabel(t: ProjectType | undefined | null): string {
+  return t === 'react' ? 'React' : t === 'quiz' ? 'Quiz' : 'HTML'
+}
+/** Tailwind classes for the small type pill shown next to project titles. */
+export function projectTypePill(t: ProjectType | undefined | null): string {
+  return t === 'react' ? 'bg-cyan-900/40 text-cyan-200'
+    : t === 'quiz' ? 'bg-violet-900/40 text-violet-200'
+    : 'bg-vs-panel text-vs-mute'
+}
+
+// ---------- Quiz ----------------------------------------------------------
+// Questions live in projects.quiz (students can read it). Correct answers
+// live in the admin-only quiz_answer_keys table. A student's answers are
+// stored in submissions.files / submission_drafts.files keyed by question id
+// (see src/lib/quiz.ts for the encoding).
+export type QuizQuestionType = 'single' | 'multiple' | 'paragraph'
+export interface QuizOption { id: string; text: string }
+export interface QuizQuestion {
+  id: string
+  type: QuizQuestionType
+  prompt: string          // markdown
+  points: number
+  options: QuizOption[]   // empty for paragraph questions
+}
+export interface Quiz { questions: QuizQuestion[] }
+export interface QuizKeyEntry {
+  correct?: string[]      // option ids (single: exactly one)
+  model_answer?: string   // paragraph: shown to graders only
+}
+export type QuizKey = Record<string, QuizKeyEntry>
 
 export interface Project {
   id: string
@@ -51,6 +82,7 @@ export interface Project {
   expected_output_url?: string | null
   expected_output_path?: string | null
   reference_md?: string | null
+  quiz?: Quiz | null
   created_at: string
 }
 
@@ -100,12 +132,15 @@ export const REACT_RUBRIC: RubricCriterion[] = [
 ]
 
 export function rubricFor(projectType: ProjectType | undefined | null): RubricCriterion[] {
+  // Quizzes are scored per question, not with a rubric.
+  if (projectType === 'quiz') return []
   return projectType === 'react' ? REACT_RUBRIC : HTML_RUBRIC
 }
 
-export type Course = 'WEB 101' | 'WEB 301'
-export const COURSES: Course[] = ['WEB 101', 'WEB 301']
+export type Course = 'WEB 101' | 'WEB 301' | 'Quiz'
+export const COURSES: Course[] = ['WEB 101', 'WEB 301', 'Quiz']
 export function courseFor(projectType: ProjectType | undefined | null): Course {
+  if (projectType === 'quiz') return 'Quiz'
   return projectType === 'react' ? 'WEB 301' : 'WEB 101'
 }
 
@@ -133,4 +168,6 @@ export interface Evaluation {
   graded_by: string | null
   graded_at: string
   updated_at: string
+  // Quiz only: paragraph answers still waiting for a human grade.
+  pending_manual?: number
 }
