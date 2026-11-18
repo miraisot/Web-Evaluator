@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import type { Assignment, Project } from '../lib/types'
 
-type Row = Assignment & { project: Pick<Project, 'title' | 'description'> }
+type Row = Assignment & { project: Pick<Project, 'title' | 'description' | 'project_type'> }
 
 type Filter = 'all' | 'new' | 'submitted'
 
@@ -20,7 +20,7 @@ export default function Home() {
       const [{ data: a }, { data: s }] = await Promise.all([
         supabase
           .from('assignments')
-          .select('*, project:projects(title, description)')
+          .select('*, project:projects(title, description, project_type)')
           .order('starts_at', { ascending: true }),
         supabase
           .from('submissions')
@@ -118,7 +118,12 @@ export default function Home() {
                 <li key={r.id} className="card">
                   <div className="flex items-start justify-between gap-4">
                     <div>
-                      <div className="font-medium">{r.project.title}</div>
+                      <div className="font-medium flex items-center gap-2">
+                        {r.project.title}
+                        {r.project.project_type === 'quiz' && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wide bg-violet-900/40 text-violet-200">Quiz</span>
+                        )}
+                      </div>
                       <div className="text-xs text-vs-mute mt-1">
                         {new Date(r.starts_at).toLocaleString()} → {new Date(r.ends_at).toLocaleString()}
                       </div>

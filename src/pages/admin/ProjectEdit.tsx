@@ -3,7 +3,10 @@ import { Link, useParams } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import CodeEditor from '../../components/CodeEditor'
 import MarkdownEditor from '../../components/MarkdownEditor'
-import type { FileMap, Project, ProjectAsset } from '../../lib/types'
+import QuizBuilder from '../../components/QuizBuilder'
+import type { FileMap, Project, ProjectAsset, Quiz, QuizKey } from '../../lib/types'
+import { projectTypeLabel, projectTypePill } from '../../lib/types'
+import { cleanKey, emptyQuiz, normalizeQuiz, validateQuiz } from '../../lib/quiz'
 
 function AssetTree({ assets, onRemove }: { assets: ProjectAsset[]; onRemove: (a: ProjectAsset) => void }) {
   // Group by top-level folder; files at root go under "/"
@@ -69,6 +72,9 @@ export default function ProjectEdit() {
   const [uploading, setUploading] = useState(false)
   const [folder, setFolder] = useState('')  // optional target folder for next upload
   const [uploadingExpected, setUploadingExpected] = useState(false)
+  const [quiz, setQuiz] = useState<Quiz>(emptyQuiz())
+  const [quizKey, setQuizKey] = useState<QuizKey>({})
+  const [submissionCount, setSubmissionCount] = useState(0)
 
   async function load() {
     if (!id) return
@@ -76,6 +82,16 @@ export default function ProjectEdit() {
     if (p) {
       setProject(p as Project)
       setFiles((p as Project).starter_files || {})
+      if ((p as Project).project_type === 'quiz') {
+        setQuiz(normalizeQuiz((p as Project).quiz))
+        const { data: k } = await supabase.from('quiz_answer_keys').select('answers').eq('project_id', id).maybeSingle()
+        setQuizKey(((k as { answers?: QuizKey } | null)?.answers) || {})
+        const { count } = await supabase
+          .from('submissions')
+          .select('id, assignment:assignments!inner(project_id)', { count: 'exact', head: true })
+          .eq('assignment.project_id', id)
+        setSubmissionCount(count || 0)
+      }
     }
     const { data: a } = await supabase.from('project_assets').select('*').eq('project_id', id).order('name')
     setAssets((a as ProjectAsset[]) || [])
@@ -83,8 +99,39 @@ export default function ProjectEdit() {
   useEffect(() => { load() }, [id])
 
 
+  async function saveQuiz() {
+    if (!project) return
+    const issues = validateQuiz(quiz, quizKey)
+    if (quiz.questions.length === 0) issues.unshift('Add at least one question')
+    if (issues.length && !confirm(`Some questions need attention:\n\n• ${issues.join('\n• ')}\n\nSave anyway?`)) return
+    setSaving(true)
+    const key = cleanKey(quiz, quizKey)
+    const { error } = await supabase
+      .from('projects')
+      .update({ title: project.title, description: project.description, quiz })
+      .eq('id', project.id)
+    if (error) { setSaving(false); return alert(error.message) }
+    const { error: kErr } = await supabase
+      .from('quiz_answer_keys')
+      .upsert({ project_id: project.id, answers: key, updated_at: new Date().toISOString() }, { onConflict: 'project_id' })
+    if (kErr) { setSaving(false); return alert(`Questions saved, but the answer key failed: ${kErr.message}`) }
+    setQuizKey(key)
+    if (submissionCount > 0 && confirm(
+      `Saved. ${submissionCount} submission(s) already exist for this quiz.\n\n` +
+      'Re-score them with the updated questions and key? Paragraph grades are kept; manual changes to choice questions are replaced.'
+    )) {
+      const { data, error: rErr } = await supabase.rpc('regrade_quiz_project', { p_project_id: project.id })
+      setSaving(false)
+      if (rErr) return alert(`Re-score failed: ${rErr.message}`)
+      return alert(`Re-scored ${data ?? 0} submission(s).`)
+    }
+    setSaving(false)
+    alert('Saved')
+  }
+
   async function save() {
     if (!project) return
+    if (project.project_type === 'quiz') return saveQuiz()
     setSaving(true)
     const { error } = await supabase
       .from('projects')
@@ -267,12 +314,40 @@ export default function ProjectEdit() {
       <div className="flex items-center gap-3">
         <Link to="/admin/projects" className="text-vs-mute hover:text-vs-text text-sm">← Projects</Link>
         <h2 className="font-semibold">{project.title}</h2>
-        <span className={`text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wide ${project.project_type === 'react' ? 'bg-cyan-900/40 text-cyan-200' : 'bg-vs-panel text-vs-mute'}`}>
-          {project.project_type === 'react' ? 'React' : 'HTML'}
+        <span className={`text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wide ${projectTypePill(project.project_type)}`}>
+          {projectTypeLabel(project.project_type)}
         </span>
         <button className="btn ml-auto" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
       </div>
 
+      {project.project_type === 'quiz' ? (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="card space-y-3 h-fit">
+            <div>
+              <label className="label">Title</label>
+              <input className="input" value={project.title} onChange={e => setProject({ ...project, title: e.target.value })} />
+            </div>
+            <div>
+              <label className="label">Instructions (markdown, shown above the questions)</label>
+              <MarkdownEditor
+                value={project.description}
+                onChange={v => setProject({ ...project, description: v })}
+                placeholder={"Answer all questions. Multiple-choice questions score only when every correct option is picked."}
+                minHeight={180}
+              />
+            </div>
+            {submissionCount > 0 && (
+              <div className="text-xs text-amber-300">
+                {submissionCount} submission(s) exist. After saving you can re-score them.
+              </div>
+            )}
+          </div>
+          <div className="md:col-span-2 card">
+            <h3 className="font-medium mb-3">Questions</h3>
+            <QuizBuilder quiz={quiz} answerKey={quizKey} onChange={(q, k) => { setQuiz(q); setQuizKey(k) }} />
+          </div>
+        </div>
+      ) : (<>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="card space-y-3">
           <div>
@@ -426,6 +501,7 @@ export default function ProjectEdit() {
           <div className="text-vs-mute text-sm">No expected output image uploaded.</div>
         )}
       </div>
+      </>)}
     </div>
   )
 }

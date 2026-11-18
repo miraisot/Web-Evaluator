@@ -6,6 +6,7 @@ import CodeEditor from '../../components/CodeEditor'
 import FileTree from '../../components/FileTree'
 import Preview from '../../components/Preview'
 import ReactPreview from '../../components/ReactPreview'
+import QuizReview from '../../components/QuizReview'
 import type { Evaluation, Profile, ProjectAsset, ProjectType, Submission } from '../../lib/types'
 import { rubricFor } from '../../lib/types'
 
@@ -150,7 +151,7 @@ export default function SubmissionView() {
         )}
         {evalRow && (
           <span className="text-emerald-300 text-xs" title={`Graded ${new Date(evalRow.graded_at).toLocaleString()}`}>
-            Graded · {evalRow.total}/{evalRow.max_total}
+            {evalRow.pending_manual ? 'Partly graded' : 'Graded'} · {evalRow.total}/{evalRow.max_total}
           </span>
         )}
         <span className="ml-auto text-vs-mute">
@@ -158,6 +159,16 @@ export default function SubmissionView() {
         </span>
       </div>
 
+      {row.assignment.project.project_type === 'quiz' ? (
+        <QuizReview
+          submissionId={row.id}
+          projectId={row.assignment.project_id}
+          answers={files}
+          evaluation={evalRow}
+          graderId={profile?.id ?? null}
+          onSaved={setEvalRow}
+        />
+      ) : (<>
       <div className="flex border border-vs-border rounded overflow-hidden" style={{ height: '60vh' }}>
         <aside className="w-48 border-r border-vs-border bg-vs-sidebar overflow-auto">
           <div className="text-xs uppercase text-vs-mute p-3 pb-1">Files</div>
@@ -235,6 +246,7 @@ export default function SubmissionView() {
           {err && <span className="text-xs text-red-400">{err}</span>}
         </div>
       </div>
+      </>)}
     </div>
   )
 }

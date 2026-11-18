@@ -1,9 +1,9 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import MarkdownEditor from '../../components/MarkdownEditor'
 import type { Project, ProjectType, Category, Course } from '../../lib/types'
-import { CATEGORIES, categoryFor, COURSES, courseFor } from '../../lib/types'
+import { CATEGORIES, categoryFor, COURSES, courseFor, projectTypeLabel, projectTypePill } from '../../lib/types'
 import { WEB301_TEMPLATES, WEB301_PRACTICE } from '../../exam-templates/web301'
 import { JU_TEMPLATES } from '../../exam-templates/ju'
 
@@ -25,7 +25,7 @@ function loadDraft(): Draft {
     return {
       title: d.title ?? '',
       desc: d.desc ?? '',
-      type: d.type === 'react' ? 'react' : 'html',
+      type: d.type === 'react' || d.type === 'quiz' ? d.type : 'html',
       templateId: d.templateId ?? '',
       category: (CATEGORIES as string[]).includes(d.category || '') ? (d.category as Category) : 'Assignments',
     }
@@ -35,6 +35,7 @@ function loadDraft(): Draft {
 }
 
 export default function Projects() {
+  const nav = useNavigate()
   const [rows, setRows] = useState<Project[]>([])
   const initial = loadDraft()
   const [title, setTitle] = useState(initial.title)
@@ -94,13 +95,20 @@ export default function Projects() {
     } else if (type === 'react') {
       // Only seed the basic React starter when no exam template is picked.
       payload.starter_files = REACT_STARTER
+    } else if (type === 'quiz') {
+      // No code files: questions are added on the Edit page.
+      payload.starter_files = {}
+      payload.quiz = { questions: [] }
     }
     // HTML starters come from the DB default.
-    const { error } = await supabase.from('projects').insert(payload)
+    const { data: created, error } = await supabase.from('projects').insert(payload).select('id').single()
     setBusy(false)
     if (error) return alert(error.message)
+    const wasQuiz = type === 'quiz'
     setTitle(''); setDesc(''); setType('html'); setTemplateId(''); setCategory('Assignments')
     try { sessionStorage.removeItem(DRAFT_KEY) } catch { /* ignore */ }
+    // A new quiz is empty: go straight to the question builder.
+    if (wasQuiz && created) { nav(`/admin/projects/${(created as { id: string }).id}`); return }
     load()
   }
 
@@ -277,15 +285,21 @@ export default function Projects() {
               <input type="radio" className="mr-2" name="ptype" checked={type === 'react'} onChange={() => setType('react')} />
               React
             </label>
+            <label className={`flex-1 cursor-pointer border rounded px-3 py-2 text-sm ${type === 'quiz' ? 'border-vs-accent text-vs-text' : 'border-vs-border text-vs-mute'}`}>
+              <input type="radio" className="mr-2" name="ptype" checked={type === 'quiz'} onChange={() => { setType('quiz'); setTemplateId('') }} />
+              Quiz
+            </label>
           </div>
           <div className="text-[11px] text-vs-mute mt-1">
             {type === 'react'
               ? 'Preview compiles JSX in the browser (via Sandpack). React Router is pre-installed.'
+              : type === 'quiz'
+              ? 'Single choice, multiple choice and paragraph questions. Choice questions are auto-graded; you add questions after creating it.'
               : 'Classic iframe srcdoc preview — index.html, styles.css, script.js.'}
           </div>
         </div>
         <div>
-          <label className="label">Problem statement (markdown)</label>
+          <label className="label">{type === 'quiz' ? 'Instructions (markdown)' : 'Problem statement (markdown)'}</label>
           <MarkdownEditor
             value={desc}
             onChange={setDesc}
@@ -318,8 +332,8 @@ export default function Projects() {
                     <div className="min-w-0">
                       <div className="font-medium flex items-center gap-2">
                         {p.title}
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wide ${p.project_type === 'react' ? 'bg-cyan-900/40 text-cyan-200' : 'bg-vs-panel text-vs-mute'}`}>
-                          {p.project_type === 'react' ? 'React' : 'HTML'}
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wide ${projectTypePill(p.project_type)}`}>
+                          {projectTypeLabel(p.project_type)}
                         </span>
                       </div>
                       <div className="text-xs text-vs-mute line-clamp-2 whitespace-pre-wrap">{p.description || '—'}</div>
