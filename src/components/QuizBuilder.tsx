@@ -154,7 +154,7 @@ export default function QuizBuilder({ quiz, answerKey, onChange }: Props) {
                   onChange={e => setModelAnswer(q, e.target.value)}
                   placeholder="Key points a full-marks answer should cover…"
                 />
-                <div className="text-[11px] text-vs-mute mt-1">Students type a free-text answer. You grade it by hand in Submissions.</div>
+                <div className="text-[11px] text-vs-mute mt-1">Students type a free-text answer. Gemini scores it against this model answer when they submit (partial marks allowed); you can check and change the score in Submissions. A clear model answer gives better AI scores.</div>
               </div>
             ) : (
               <div className="space-y-1.5">

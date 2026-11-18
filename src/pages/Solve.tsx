@@ -9,6 +9,7 @@ import Markdown from '../components/Markdown'
 import FileTree from '../components/FileTree'
 import QuizTaker from '../components/QuizTaker'
 import { isAnswered, normalizeQuiz } from '../lib/quiz'
+import { gradeSubmission } from '../lib/aiGrade'
 import type { Assignment, FileMap, Project, ProjectAsset, ProjectType } from '../lib/types'
 // Bundled reference docs served from inside the app so they work under
 // Safe Exam Browser without widening the URL allow-list.
@@ -340,6 +341,21 @@ export default function Solve() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [assignment, profile])
 
+  // Quizzes: choice questions are scored by the database on insert. Paragraph
+  // answers are scored by Gemini; start that in the background so the student
+  // isn't kept waiting. If it fails (rate limit, offline), the answers stay
+  // "to review" and faculty can run AI grading or grade by hand.
+  function aiGradeQuizInBackground(submissionId: string | undefined, answers: FileMap) {
+    if (!submissionId || assignment?.project.project_type !== 'quiz') return
+    const hasParagraph = normalizeQuiz(assignment.project.quiz).questions
+      .some(q => q.type === 'paragraph' && isAnswered(q, answers))
+    if (!hasParagraph) return
+    gradeSubmission({ submissionId }).catch(e => {
+      // eslint-disable-next-line no-console
+      console.warn('[quiz ai-grade] skipped:', (e as Error).message)
+    })
+  }
+
   async function autoSubmit() {
     if (!assignment || !profile) return
     // eslint-disable-next-line no-console
@@ -349,9 +365,12 @@ export default function Solve() {
       ends_at: assignment.ends_at,
       file_count: Object.keys(filesRef.current).length,
     })
-    const { error } = await supabase
+    const answers = filesRef.current
+    const { data: inserted, error } = await supabase
       .from('submissions')
-      .insert({ assignment_id: assignment.id, student_id: profile.id, files: filesRef.current })
+      .insert({ assignment_id: assignment.id, student_id: profile.id, files: answers })
+      .select('id')
+      .single()
     if (error) {
       // eslint-disable-next-line no-console
       console.error('[auto-submit] failed:', error)
@@ -367,6 +386,7 @@ export default function Solve() {
       // eslint-disable-next-line no-console
       console.log('[auto-submit] success')
       setAutoSubmitted('ok')
+      aiGradeQuizInBackground((inserted as { id?: string } | null)?.id, answers)
       try { localStorage.removeItem(draftKey(assignment.id)) } catch {}
       await supabase.from('submission_drafts').delete()
         .eq('assignment_id', assignment.id).eq('student_id', profile.id)
@@ -528,12 +548,15 @@ export default function Solve() {
       if (!confirm(msg)) return
     } else if (!confirm('Submit this version for evaluation?')) return
     setSubmitting(true)
-    const { error } = await supabase
+    const { data: inserted, error } = await supabase
       .from('submissions')
       .insert({ assignment_id: assignment.id, student_id: profile.id, files })
+      .select('id')
+      .single()
     setSubmitting(false)
     if (error) return alert(error.message)
     didSubmitRef.current = true
+    aiGradeQuizInBackground((inserted as { id?: string } | null)?.id, files)
     localStorage.removeItem(draftKey(assignment.id))
     await supabase.from('submission_drafts').delete()
       .eq('assignment_id', assignment.id).eq('student_id', profile.id)
@@ -567,8 +590,9 @@ export default function Solve() {
     // the end inside the preview iframe chains up and shifts the whole UI.
     <div className="h-screen flex flex-col overflow-hidden">
       {/* Top bar */}
-      <header className="h-10 shrink-0 border-b border-vs-border px-3 flex items-center justify-between text-sm">
-        <div className="flex items-center gap-3">
+      <header className="brand-header h-10 shrink-0 px-3 flex items-center justify-between text-sm">
+        <div className="flex items-center gap-3 min-w-0">
+          <img src="/mirai-icon.svg" alt="Mirai" className="h-6 w-6 rounded" />
           <Link to="/" className="text-vs-mute hover:text-vs-text">← Back</Link>
           <span className="font-medium truncate max-w-md">{assignment.project.title}</span>
         </div>

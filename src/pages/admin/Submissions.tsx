@@ -169,9 +169,11 @@ export default function Submissions() {
     return hay.includes(q.toLowerCase())
   })
 
-  // Quizzes are auto-graded on submit (paragraph answers by hand), so the
-  // Gemini "Grade all" never touches them.
-  const ungradedInView = filtered.filter(r => !r.evaluation && r.assignment.project.project_type !== 'quiz')
+  // Coding: no evaluation yet. Quizzes: choice questions are scored by the
+  // database on submit, so only quizzes with paragraph answers still to score.
+  const ungradedInView = filtered.filter(r => r.assignment.project.project_type === 'quiz'
+    ? !r.evaluation || (r.evaluation.pending_manual ?? 0) > 0
+    : !r.evaluation)
 
   async function runGradeAll() {
     if (grading) return
@@ -203,7 +205,7 @@ export default function Submissions() {
             gradedBy: profile?.id ?? null,
           })
           setRows(prev => prev.map(x => x.id === r.id
-            ? { ...x, evaluation: { total: result.total, max_total: result.max_total, graded_at: new Date().toISOString(), scores: result.scores, feedback: '', feedback_by_criterion: result.feedback_by_criterion } }
+            ? { ...x, evaluation: { total: result.total, max_total: result.max_total, graded_at: new Date().toISOString(), scores: result.scores, feedback: x.evaluation?.feedback ?? '', feedback_by_criterion: result.feedback_by_criterion, pending_manual: result.pending_manual ?? 0 } }
             : x))
           done += 1
           break

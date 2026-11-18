@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import type { Evaluation, FileMap, Quiz, QuizKey } from '../lib/types'
 import { autoScore, decodeChoice, normalizeQuiz, quizMaxPoints, QUESTION_TYPE_LABEL } from '../lib/quiz'
 import Markdown from './Markdown'
+import { AI_MARK_KEY, aiGradedIds, gradeSubmission } from '../lib/aiGrade'
 
 interface Props {
   submissionId: string
@@ -25,6 +26,8 @@ export default function QuizReview({ submissionId, projectId, answers, evaluatio
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
+  const [aiBusy, setAiBusy] = useState(false)
+  const [aiIds, setAiIds] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     (async () => {
@@ -47,9 +50,33 @@ export default function QuizReview({ submissionId, projectId, answers, evaluatio
       }
       setScores(s)
       setFeedback(evaluation?.feedback || '')
-      setNotes(evaluation?.feedback_by_criterion || {})
+      const fbc = { ...(evaluation?.feedback_by_criterion || {}) }
+      setAiIds(aiGradedIds(fbc))
+      delete fbc[AI_MARK_KEY]
+      setNotes(fbc)
     })()
-  }, [projectId, submissionId, evaluation?.id])
+  }, [projectId, submissionId, evaluation?.id, evaluation?.updated_at])
+
+  const paragraphAnswered = quiz?.questions.some(q => q.type === 'paragraph' && (answers[q.id] || '').trim()) ?? false
+
+  // Gemini scores the paragraph answers that have no score yet (or, when
+  // asked, re-scores the ones it scored before). Faculty grades are kept.
+  async function runAi() {
+    const ungradedParas = quiz?.questions.filter(q => q.type === 'paragraph' && (answers[q.id] || '').trim() && evaluation?.scores?.[q.id] == null).length ?? 0
+    const force = ungradedParas === 0
+    if (force && !confirm('Every paragraph answer already has a score. Re-run AI grading on the answers the AI scored before? Scores you entered yourself stay as they are.')) return
+    setAiBusy(true); setErr(null)
+    try {
+      await gradeSubmission({ submissionId, force })
+      const { data } = await supabase.from('evaluations').select('*').eq('submission_id', submissionId).maybeSingle()
+      onSaved((data as Evaluation | null) ?? null)
+    } catch (e) {
+      const er = e as Error & { status?: number }
+      setErr(er.status === 429 ? 'Gemini rate limit hit. Try again in a minute.' : er.message)
+    } finally {
+      setAiBusy(false)
+    }
+  }
 
   const max = useMemo(() => (quiz ? quizMaxPoints(quiz) : 0), [quiz])
   const total = useMemo(
@@ -75,7 +102,9 @@ export default function QuizReview({ submissionId, projectId, answers, evaluatio
       total,
       max_total: max,
       feedback,
-      feedback_by_criterion: Object.fromEntries(Object.entries(notes).filter(([, v]) => v.trim())),
+      // Saving by hand means a faculty member has reviewed every score, so
+      // the AI markers are dropped.
+      feedback_by_criterion: Object.fromEntries(Object.entries(notes).filter(([k, v]) => k !== AI_MARK_KEY && v.trim())),
       pending_manual: 0,
       graded_by: graderId,
       graded_at: new Date().toISOString(),
@@ -89,6 +118,7 @@ export default function QuizReview({ submissionId, projectId, answers, evaluatio
     setSaving(false)
     if (error) { setErr(error.message); return }
     onSaved(data as Evaluation)
+    setAiIds(new Set())
     setSavedAt(new Date().toLocaleTimeString())
   }
 
@@ -108,7 +138,15 @@ export default function QuizReview({ submissionId, projectId, answers, evaluatio
         <div className="ml-auto flex items-center gap-3">
           {savedAt && <span className="text-xs text-emerald-300">Saved at {savedAt}</span>}
           {err && <span className="text-xs text-red-400">{err}</span>}
-          <button className="btn" onClick={save} disabled={saving}>
+          {paragraphAnswered && (
+            <button
+              className="btn-ghost"
+              onClick={runAi}
+              disabled={aiBusy || saving}
+              title="Score the paragraph answers with Gemini against the model answer. You can change any score before saving."
+            >{aiBusy ? 'AI grading…' : '✨ AI grade paragraphs'}</button>
+          )}
+          <button className="btn" onClick={save} disabled={saving || aiBusy}>
             {saving ? 'Saving…' : evaluation?.graded_by ? 'Update grade' : 'Save grade'}
           </button>
         </div>
@@ -124,6 +162,12 @@ export default function QuizReview({ submissionId, projectId, answers, evaluatio
             <div className="flex flex-wrap items-center gap-2 text-xs text-vs-mute">
               <span className="font-semibold text-vs-text text-sm">Q{i + 1}.</span>
               <span>{QUESTION_TYPE_LABEL[q.type]}</span>
+              {q.type === 'paragraph' && aiIds.has(q.id) && (
+                <span
+                  className="rounded border border-sky-700 bg-sky-900/30 px-1.5 py-px text-[10px] text-sky-200"
+                  title="Scored by Gemini. Check it, change it if needed, then save."
+                >AI</span>
+              )}
               {q.type !== 'paragraph' && (
                 auto === (Number(q.points) || 0) && auto > 0
                   ? <span className="text-emerald-300">✓ correct</span>
