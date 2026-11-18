@@ -57,7 +57,7 @@ export default function QuizBuilder({ quiz, answerKey, onChange }: Props) {
     const key = { ...answerKey }
     if (type === 'paragraph') {
       delete key[q.id]
-      setQuestions(qs.map(x => (x.id === q.id ? { ...x, type, options: [] } : x)), key)
+      setQuestions(qs.map(x => (x.id === q.id ? { ...x, type, options: [], negative: undefined } : x)), key)
       return
     }
     const options = q.options.length ? q.options : newQuestion(type).options
@@ -127,6 +127,22 @@ export default function QuizBuilder({ quiz, answerKey, onChange }: Props) {
                   onChange={e => patch(q.id, { points: Math.max(0, Number(e.target.value) || 0) })}
                 />
               </label>
+              {q.type !== 'paragraph' && (
+                <label
+                  className="flex items-center gap-1 text-xs text-vs-mute"
+                  title="Marks taken off for a wrong answer. Unanswered questions never lose marks. 0 = no negative marking."
+                >
+                  Negative −
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.25}
+                    className={`input !w-20 text-xs ${Number(q.negative) > 0 ? '!border-red-700' : ''}`}
+                    value={q.negative ?? 0}
+                    onChange={e => patch(q.id, { negative: Math.max(0, Number(e.target.value) || 0) })}
+                  />
+                </label>
+              )}
               <div className="ml-auto flex items-center gap-1 text-xs">
                 <button type="button" className="btn-ghost !px-2 !py-1" onClick={() => move(q.id, -1)} disabled={i === 0} title="Move up">↑</button>
                 <button type="button" className="btn-ghost !px-2 !py-1" onClick={() => move(q.id, 1)} disabled={i === qs.length - 1} title="Move down">↓</button>

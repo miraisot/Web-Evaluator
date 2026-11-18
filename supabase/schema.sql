@@ -433,8 +433,10 @@ create policy quiz_keys_admin_all on public.quiz_answer_keys
 alter table public.evaluations add column if not exists pending_manual integer not null default 0;
 
 -- Scores one quiz submission. Single / multiple choice questions are scored
--- from the key (multiple = all-or-nothing: exactly the correct set). Scores a
--- grader already gave to paragraph questions are kept. No-op for non-quiz
+-- from the key (multiple = all-or-nothing: exactly the correct set). A wrong
+-- answer scores -negative when the question sets "negative" (negative
+-- marking); an unanswered question always scores 0. Scores a grader (or the
+-- AI) already gave to paragraph questions are kept. No-op for non-quiz
 -- submissions.
 create or replace function public.grade_quiz_submission(p_submission_id uuid) returns void
 language plpgsql security definer set search_path = public as $$
@@ -443,6 +445,7 @@ declare
   q jsonb;
   qid text;
   pts numeric;
+  neg numeric;
   given text[];
   correct text[];
   answer_key jsonb;
@@ -488,9 +491,15 @@ begin
     select coalesce(array_agg(x order by x), '{}') into correct
       from jsonb_array_elements_text(coalesce(answer_key->qid->'correct', '[]'::jsonb)) as x;
 
+    neg := greatest(coalesce(nullif(q->>'negative', '')::numeric, 0), 0);
+
     if cardinality(correct) > 0 and given = correct then
       new_scores := new_scores || jsonb_build_object(qid, pts);
       total_pts := total_pts + pts;
+    elsif cardinality(correct) > 0 and cardinality(given) > 0 and neg > 0 then
+      -- Answered and wrong, with negative marking on this question.
+      new_scores := new_scores || jsonb_build_object(qid, -neg);
+      total_pts := total_pts - neg;
     else
       new_scores := new_scores || jsonb_build_object(qid, 0);
     end if;

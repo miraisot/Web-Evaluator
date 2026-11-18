@@ -1,6 +1,6 @@
 import { useRef } from 'react'
 import type { FileMap, Quiz } from '../lib/types'
-import { decodeChoice, encodeChoice, isAnswered, quizMaxPoints, QUESTION_TYPE_LABEL } from '../lib/quiz'
+import { decodeChoice, encodeChoice, hasNegativeMarking, isAnswered, negativeMarks, quizMaxPoints, QUESTION_TYPE_LABEL } from '../lib/quiz'
 import Markdown from './Markdown'
 
 interface Props {
@@ -44,6 +44,7 @@ export default function QuizTaker({ title, instructions, quiz, answers, onChange
         </div>
         <div className="mt-auto px-3 py-3 border-t border-vs-border text-[11px] text-vs-mute leading-relaxed">
           Answers save automatically. Multiple-choice questions score only when you pick every correct option and nothing else.
+          {hasNegativeMarking(quiz) && <> Questions marked <span className="text-red-300">−</span> lose marks for a wrong answer; leaving them blank costs nothing.</>}
         </div>
       </aside>
 
@@ -53,6 +54,7 @@ export default function QuizTaker({ title, instructions, quiz, answers, onChange
             <h1 className="text-lg font-semibold">{title}</h1>
             <div className="text-xs text-vs-mute">
               {total} question{total === 1 ? '' : 's'} · {quizMaxPoints(quiz)} points
+              {hasNegativeMarking(quiz) && <span className="text-red-300"> · negative marking on some questions</span>}
             </div>
             {instructions.trim() && <Markdown source={instructions} />}
           </div>
@@ -71,7 +73,12 @@ export default function QuizTaker({ title, instructions, quiz, answers, onChange
                   <span className="font-semibold text-vs-text text-sm">Q{i + 1}.</span>
                   <span>{QUESTION_TYPE_LABEL[q.type]}</span>
                   {q.type === 'multiple' && <span>· select all that apply</span>}
-                  <span className="ml-auto">{q.points} pt{q.points === 1 ? '' : 's'}</span>
+                  <span className="ml-auto">
+                    {q.points} pt{q.points === 1 ? '' : 's'}
+                    {negativeMarks(q) > 0 && (
+                      <span className="text-red-300" title="Marks taken off for a wrong answer. Leaving it blank costs nothing."> · −{negativeMarks(q)} if wrong</span>
+                    )}
+                  </span>
                 </div>
                 <Markdown source={q.prompt} className="prose-md-lg" />
 

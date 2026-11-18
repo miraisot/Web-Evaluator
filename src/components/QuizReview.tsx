@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import type { Evaluation, FileMap, Quiz, QuizKey } from '../lib/types'
-import { autoScore, decodeChoice, normalizeQuiz, quizMaxPoints, QUESTION_TYPE_LABEL } from '../lib/quiz'
+import { autoScore, decodeChoice, negativeMarks, normalizeQuiz, quizMaxPoints, QUESTION_TYPE_LABEL } from '../lib/quiz'
 import Markdown from './Markdown'
 import { AI_MARK_KEY, aiGradedIds, gradeSubmission } from '../lib/aiGrade'
 
@@ -83,13 +83,13 @@ export default function QuizReview({ submissionId, projectId, answers, evaluatio
     () => Object.values(scores).reduce((n, v) => n + (Number.isFinite(Number(v)) ? Number(v) : 0), 0),
     [scores],
   )
-  const ungraded = quiz?.questions.filter(q => scores[q.id] === '' || scores[q.id] == null).length ?? 0
+  const ungraded = quiz?.questions.filter(q => scores[q.id] === '' || scores[q.id] === '-' || scores[q.id] == null).length ?? 0
 
-  function setScore(id: string, raw: string, maxPts: number) {
-    if (raw === '') { setScores(s => ({ ...s, [id]: '' })); return }
+  function setScore(id: string, raw: string, maxPts: number, minPts = 0) {
+    if (raw === '' || raw === '-') { setScores(s => ({ ...s, [id]: raw === '-' ? '-' : '' })); return }
     const n = Number(raw)
     if (!Number.isFinite(n)) return
-    setScores(s => ({ ...s, [id]: String(Math.max(0, Math.min(maxPts, n))) }))
+    setScores(s => ({ ...s, [id]: String(Math.max(minPts, Math.min(maxPts, n))) }))
   }
 
   async function save() {
@@ -173,18 +173,21 @@ export default function QuizReview({ submissionId, projectId, answers, evaluatio
                   ? <span className="text-emerald-300">✓ correct</span>
                   : chosen.length === 0
                   ? <span className="text-vs-mute">not answered</span>
-                  : <span className="text-red-400">✗ wrong</span>
+                  : <span className="text-red-400">✗ wrong{negativeMarks(q) > 0 ? ` (−${negativeMarks(q)})` : ''}</span>
+              )}
+              {negativeMarks(q) > 0 && chosen.length === 0 && (
+                <span className="text-vs-mute" title="Negative marking applies to wrong answers only">· −{negativeMarks(q)} if wrong</span>
               )}
               <label className="ml-auto flex items-center gap-1">
                 Score
                 <input
                   type="number"
-                  min={0}
+                  min={-negativeMarks(q)}
                   max={q.points}
-                  step={0.5}
-                  className={`input !w-20 text-xs ${scores[q.id] === '' ? '!border-amber-600' : ''}`}
+                  step={0.25}
+                  className={`input !w-20 text-xs ${scores[q.id] === '' ? '!border-amber-600' : ''} ${Number(scores[q.id]) < 0 ? '!text-red-300' : ''}`}
                   value={scores[q.id] ?? ''}
-                  onChange={e => setScore(q.id, e.target.value, Number(q.points) || 0)}
+                  onChange={e => setScore(q.id, e.target.value, Number(q.points) || 0, -negativeMarks(q))}
                   placeholder="—"
                 />
                 <span>/ {q.points}</span>

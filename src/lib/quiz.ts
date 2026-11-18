@@ -52,9 +52,17 @@ export function quizMaxPoints(quiz: Quiz): number {
   return quiz.questions.reduce((n, q) => n + (Number(q.points) || 0), 0)
 }
 
+/** Marks lost for a wrong answer; 0 for paragraph questions or when not set. */
+export function negativeMarks(q: QuizQuestion): number {
+  if (q.type === 'paragraph') return 0
+  const n = Number(q.negative)
+  return Number.isFinite(n) && n > 0 ? n : 0
+}
+
 /**
- * Auto score for one choice question (mirror of the SQL grader).
- * Returns null for paragraph questions: those need a human.
+ * Auto score for one choice question (mirror of the SQL grader):
+ * exact correct set -> points, unanswered -> 0, otherwise -negative.
+ * Returns null for paragraph questions: those need a human / AI.
  */
 export function autoScore(q: QuizQuestion, key: QuizKey, answers: FileMap): number | null {
   if (q.type === 'paragraph') return null
@@ -62,7 +70,12 @@ export function autoScore(q: QuizQuestion, key: QuizKey, answers: FileMap): numb
   const given = decodeChoice(answers[q.id]).sort()
   if (correct.length === 0) return 0
   const same = correct.length === given.length && correct.every((c, i) => c === given[i])
-  return same ? (Number(q.points) || 0) : 0
+  if (same) return Number(q.points) || 0
+  return given.length > 0 ? -negativeMarks(q) : 0
+}
+
+export function hasNegativeMarking(quiz: Quiz): boolean {
+  return quiz.questions.some(q => negativeMarks(q) > 0)
 }
 
 /** Problems that would make the quiz unanswerable or ungradable. */
@@ -73,6 +86,9 @@ export function validateQuiz(quiz: Quiz, key: QuizKey): string[] {
     if (!q.prompt.trim()) issues.push(`${n}: question text is empty`)
     if (!(Number(q.points) > 0)) issues.push(`${n}: points must be more than 0`)
     if (q.type === 'paragraph') return
+    const neg = Number(q.negative ?? 0)
+    if (!Number.isFinite(neg) || neg < 0) issues.push(`${n}: negative marks can't be below 0`)
+    else if (neg > Number(q.points)) issues.push(`${n}: negative marks can't be more than the question's points`)
     if (q.options.length < 2) issues.push(`${n}: needs at least 2 options`)
     if (q.options.some(o => !o.text.trim())) issues.push(`${n}: an option is empty`)
     const correct = (key[q.id]?.correct || []).filter(id => q.options.some(o => o.id === id))

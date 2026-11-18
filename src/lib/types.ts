@@ -63,6 +63,8 @@ export interface QuizQuestion {
   type: QuizQuestionType
   prompt: string          // markdown
   points: number
+  /** Marks taken off for a wrong answer (choice questions only). 0/absent = none. Unanswered never loses marks. */
+  negative?: number
   options: QuizOption[]   // empty for paragraph questions
 }
 export interface Quiz { questions: QuizQuestion[] }
