@@ -9,7 +9,9 @@ import { COURSES, courseFor, CATEGORIES, categoryFor, CAMPUSES, rubricFor } from
 
 const GRADE_INTERVAL_MS = 5000  // 12 RPM — under Gemini free tier 15 RPM
 
-type Row = Submission & {
+// The list never needs the student's code (`files`, most of the payload);
+// SubmissionView loads it when one submission is opened.
+type Row = Omit<Submission, 'files'> & {
   assignment: Assignment & { project: Pick<Project, 'title' | 'project_type' | 'category'> }
   student: Profile | null
   evaluation: Pick<Evaluation, 'total' | 'max_total' | 'graded_at' | 'scores' | 'feedback' | 'feedback_by_criterion' | 'pending_manual'> | null
@@ -112,7 +114,7 @@ export default function Submissions() {
         .from('submissions')
         // profiles(*) rather than a column list, so a missing optional column
         // (e.g. uid before its migration runs) can't break the list.
-        .select('*, assignment:assignments(*, project:projects(title, project_type, category)), student:profiles(*), evaluation:evaluations(*)')
+        .select('id, assignment_id, student_id, submitted_at, auto_collected, assignment:assignments(*, project:projects(title, project_type, category)), student:profiles(*), evaluation:evaluations(*)')
         .order('submitted_at', { ascending: false })
         .order('id', { ascending: true })
         .range(from, to),
