@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
+import BrandLogo from '../components/BrandLogo'
 import type { Assignment, Project } from '../lib/types'
 
 type Row = Assignment & { project: Pick<Project, 'title' | 'description' | 'project_type'> }
@@ -73,10 +74,10 @@ export default function Home() {
 
   return (
     <div className="min-h-screen">
-      <header className="border-b border-vs-border px-4 py-3 flex items-center justify-between">
-        <div className="font-semibold">Web Eval</div>
+      <header className="brand-header px-4 py-3 flex items-center justify-between">
+        <BrandLogo />
         <div className="flex items-center gap-3 text-sm">
-          <span className="text-vs-mute">{profile?.email}</span>
+          <span className="hidden md:inline text-vs-mute">{profile?.email}</span>
           {profile?.role === 'admin' && <Link className="btn-ghost" to="/admin">Admin</Link>}
           <button className="btn-ghost" onClick={signOut}>Sign out</button>
         </div>

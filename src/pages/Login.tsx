@@ -144,9 +144,14 @@ export default function Login() {
 
   return (
     <div className="min-h-screen grid place-items-center p-6">
-      <form onSubmit={submit} className="card w-full max-w-md space-y-3">
-        <h1 className="text-lg font-semibold">
-          Web Eval — {mode === 'signin' ? 'Sign in' : mode === 'signup' ? 'Create account' : 'Reset password'}
+      <form onSubmit={submit} className="card w-full max-w-md space-y-3 relative overflow-hidden">
+        <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-mirai-blue to-mirai-teal" aria-hidden />
+        <div className="flex flex-col items-center gap-2 pt-2 pb-1">
+          <img src="/mirai-logo.svg" alt="Mirai School of Technology" className="h-8 w-auto" />
+          <div className="text-xs uppercase tracking-[0.2em] text-vs-mute">Mirai Evaluation</div>
+        </div>
+        <h1 className="text-lg font-semibold text-center">
+          {mode === 'signin' ? 'Sign in' : mode === 'signup' ? 'Create account' : 'Reset password'}
         </h1>
 
         {mode === 'signup' && (

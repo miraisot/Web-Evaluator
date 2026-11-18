@@ -3,16 +3,20 @@
 @tailwind utilities;
 
 html, body, #root { height: 100%; }
-body { background: #1e1e1e; color: #cccccc; }
+
+/* Mirai brand bar: navy header with the blue -> teal hairline used on miraisot.com */
+.brand-header { @apply bg-mirai-navy border-b border-vs-border relative; }
+.brand-header::after { content: ''; @apply absolute left-0 right-0 -bottom-px h-px bg-gradient-to-r from-mirai-blue to-mirai-teal; }
+body { background: #060a24; color: #d5dbf0; }
 
 /* Thin VS Code-ish scrollbars */
 *::-webkit-scrollbar { width: 10px; height: 10px; }
-*::-webkit-scrollbar-thumb { background: #424242; border-radius: 4px; }
-*::-webkit-scrollbar-thumb:hover { background: #555; }
+*::-webkit-scrollbar-thumb { background: #2a3463; border-radius: 4px; }
+*::-webkit-scrollbar-thumb:hover { background: #3a4680; }
 
 input, select, textarea, button { font-family: inherit; }
 
-.btn        { @apply px-3 py-1.5 rounded bg-vs-accent text-white text-sm hover:opacity-90 disabled:opacity-50; }
+.btn        { @apply px-3 py-1.5 rounded bg-vs-accent bg-gradient-to-r from-mirai-blue to-mirai-teal text-white text-sm font-medium hover:opacity-90 disabled:opacity-50; }
 .btn-ghost  { @apply px-3 py-1.5 rounded text-sm hover:bg-vs-panel text-vs-text border border-vs-border; }
 .input      { @apply bg-vs-panel border border-vs-border rounded px-2 py-1 text-sm text-vs-text focus:outline-none focus:border-vs-accent w-full; }
 .label      { @apply block text-xs text-vs-mute mb-1 uppercase tracking-wide; }

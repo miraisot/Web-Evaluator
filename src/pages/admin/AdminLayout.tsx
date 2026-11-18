@@ -1,5 +1,6 @@
-import { NavLink, Outlet, Link } from 'react-router-dom'
+import { NavLink, Outlet } from 'react-router-dom'
 import { useAuth } from '../../lib/auth'
+import BrandLogo from '../../components/BrandLogo'
 
 const tab = ({ isActive }: { isActive: boolean }) =>
   `px-3 py-1.5 rounded text-sm ${isActive ? 'bg-vs-panel text-vs-text' : 'text-vs-mute hover:text-vs-text'}`
@@ -8,9 +9,9 @@ export default function AdminLayout() {
   const { profile, signOut } = useAuth()
   return (
     <div className="min-h-screen">
-      <header className="border-b border-vs-border px-4 py-3 flex items-center justify-between">
+      <header className="brand-header px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-6">
-          <Link to="/" className="font-semibold">Web Eval · Admin</Link>
+          <BrandLogo label="Mirai Evaluation · Admin" />
           <nav className="flex items-center gap-1">
             <NavLink to="/admin/projects" className={tab}>Projects</NavLink>
             <NavLink to="/admin/assignments" className={tab}>Assignments</NavLink>
@@ -18,7 +19,7 @@ export default function AdminLayout() {
           </nav>
         </div>
         <div className="flex items-center gap-3 text-sm">
-          <span className="text-vs-mute">{profile?.email}</span>
+          <span className="hidden md:inline text-vs-mute">{profile?.email}</span>
           <button className="btn-ghost" onClick={signOut}>Sign out</button>
         </div>
       </header>
