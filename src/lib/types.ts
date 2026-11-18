@@ -3,8 +3,18 @@ export type Role = 'student' | 'admin'
 export type Campus = 'Hi-Tech' | 'RGIB' | 'JU' | 'Dummy'
 export const CAMPUSES: Campus[] = ['Hi-Tech', 'RGIB', 'JU', 'Dummy']
 
-export const SECTIONS = ['A', 'B', 'C', 'D', 'Dummy'] as const
+// Stored as-is in profiles.section (free text, no DB constraint). RGIB uses
+// 'AI/ML' and 'CSE'; the other campuses use A-D.
+export const SECTIONS = ['A', 'B', 'C', 'D', 'AI/ML', 'CSE', 'Dummy'] as const
+const LETTER_SECTIONS = new Set(['A', 'B', 'C', 'D'])
+/** Dropdown label: "Section A" for letters, plain name for AI/ML, CSE, Dummy. */
+export function sectionLabel(s: string): string {
+  return LETTER_SECTIONS.has(s) ? `Section ${s}` : s
+}
 export const SEMESTERS = ['1', '2', '3', '4', '5', '6', '7', '8', 'Dummy'] as const
+// Admitted batch, named by graduation year.
+export const BATCHES = ['2025', '2026'] as const
+export type Batch = typeof BATCHES[number]
 
 export interface Profile {
   id: string
@@ -15,6 +25,16 @@ export interface Profile {
   campus?: Campus | null
   semester?: string | null
   section?: string | null
+  batch?: Batch | string | null
+}
+
+export interface StudentRosterRow {
+  email: string
+  name: string | null
+  uid: string | null
+  campus: Campus | null
+  batch: string
+  created_at?: string
 }
 
 export type FileMap = Record<string, string>

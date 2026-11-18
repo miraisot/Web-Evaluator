@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../../lib/supabase'
-import type { Assignment, Project, Category, Course } from '../../lib/types'
-import { CATEGORIES, categoryFor, COURSES, courseFor } from '../../lib/types'
+import type { Assignment, Project, Category, Course, Campus } from '../../lib/types'
+import { CATEGORIES, categoryFor, COURSES, courseFor, CAMPUSES, BATCHES } from '../../lib/types'
 
 type Row = Assignment & { project: Pick<Project, 'title' | 'project_type' | 'category'> }
 
@@ -40,6 +40,14 @@ export default function Assignments() {
   const [projectId, setProjectId] = useState('')
   const [emails, setEmails] = useState('')
   const [isPublic, setIsPublic] = useState(false)
+  // Assign by campus + batch: picks from the pre-registration roster and
+  // fills the email list, so the existing per-email flow handles the rest.
+  type Mode = 'emails' | 'roster' | 'public'
+  const [mode, setMode] = useState<Mode>('emails')
+  const [rosterCampuses, setRosterCampuses] = useState<Set<Campus>>(new Set())
+  const [rosterBatches, setRosterBatches] = useState<Set<string>>(new Set())
+  const [rosterPreview, setRosterPreview] = useState<{ email: string; name: string | null; campus: Campus | null; batch: string }[]>([])
+  const [rosterLoading, setRosterLoading] = useState(false)
   const [starts, setStarts] = useState(toLocalInput(new Date().toISOString()))
   const [ends, setEnds] = useState(toLocalInput(new Date(Date.now()+2*3600_000).toISOString()))
   const [busy, setBusy] = useState(false)
@@ -61,6 +69,38 @@ export default function Assignments() {
   }
   useEffect(() => { load() }, [])
 
+  // Keep mode and the legacy `isPublic` state in sync so the create() logic
+  // below doesn't have to care which mode fed it.
+  useEffect(() => { setIsPublic(mode === 'public') }, [mode])
+
+  // Re-query the roster whenever the filters change. One row per student
+  // in the selected campus(es) × batch(es).
+  useEffect(() => {
+    if (mode !== 'roster') { setRosterPreview([]); return }
+    if (rosterCampuses.size === 0 || rosterBatches.size === 0) { setRosterPreview([]); return }
+    let cancelled = false
+    setRosterLoading(true)
+    ;(async () => {
+      const { data, error } = await supabase
+        .from('student_roster')
+        .select('email, name, campus, batch')
+        .in('campus', [...rosterCampuses])
+        .in('batch', [...rosterBatches])
+        .order('email', { ascending: true })
+      if (cancelled) return
+      setRosterLoading(false)
+      if (error) { alert(error.message); return }
+      setRosterPreview((data as { email: string; name: string | null; campus: Campus | null; batch: string }[]) || [])
+    })()
+    return () => { cancelled = true }
+  }, [mode, rosterCampuses, rosterBatches])
+
+  function toggleSet<T>(s: Set<T>, v: T): Set<T> {
+    const n = new Set(s)
+    if (n.has(v)) n.delete(v); else n.add(v)
+    return n
+  }
+
   async function create(e: FormEvent) {
     e.preventDefault()
     if (!projectId) return alert('Pick a project')
@@ -72,6 +112,13 @@ export default function Assignments() {
     // delete and re-insert: deleting an assignment also deletes the students'
     // drafts and submissions for it.
     const times = { starts_at: startsISO, ends_at: endsISO }
+    // Roster mode is just "fill emails from the roster, then run the
+    // per-email flow" — keeps RLS and the student view unchanged.
+    let effectiveEmails = emails
+    if (mode === 'roster') {
+      if (!rosterPreview.length) { setBusy(false); return alert('Pick campus(es) and batch(es) that have students') }
+      effectiveEmails = rosterPreview.map(r => r.email).join(',')
+    }
     if (isPublic) {
       // At most one public row per project.
       const { data: existing, error: readErr } = await supabase.from('assignments')
@@ -86,8 +133,8 @@ export default function Assignments() {
       if (error) return alert(error.message)
       alert(existing ? 'Times updated for everyone.' : 'Published to everyone.')
     } else {
-      const list = [...new Set(emails.split(/[\s,;\n]+/).map(s => s.trim().toLowerCase()).filter(Boolean))]
-      if (!list.length) { setBusy(false); return alert('Add at least one email, or tick "Publish to everyone"') }
+      const list = [...new Set(effectiveEmails.split(/[\s,;\n]+/).map(s => s.trim().toLowerCase()).filter(Boolean))]
+      if (!list.length) { setBusy(false); return alert('Add at least one email, pick a campus + batch, or tick "Publish to everyone"') }
       const { data: existing, error: readErr } = await supabase.from('assignments')
         .select('id, assignee_email').eq('project_id', projectId).eq('is_public', false)
       if (readErr) { setBusy(false); return alert(readErr.message) }
@@ -214,29 +261,72 @@ export default function Assignments() {
             {projects.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
           </select>
         </div>
-        <div className="border border-vs-border rounded p-3 bg-vs-bg">
-          <label className="flex items-start gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={isPublic}
-              onChange={e => setIsPublic(e.target.checked)}
-              className="mt-0.5"
-            />
-            <div className="flex-1">
-              <div className="text-sm text-vs-text">Publish to everyone</div>
-              <div className="text-[11px] text-vs-mute mt-0.5">
-                Every signed-in student sees this assignment during the window. No email list needed.
-              </div>
-            </div>
-          </label>
+        <div className="border border-vs-border rounded p-1 bg-vs-bg flex text-xs">
+          {([
+            ['emails', 'By email'],
+            ['roster', 'By campus + batch'],
+            ['public', 'Everyone'],
+          ] as const).map(([k, label]) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => setMode(k)}
+              className={`flex-1 px-2 py-1.5 rounded transition-colors ${mode === k ? 'bg-vs-panel text-vs-text' : 'text-vs-mute hover:text-vs-text'}`}
+            >{label}</button>
+          ))}
         </div>
 
-        {!isPublic && (
+        {mode === 'emails' && (
           <div>
             <label className="label">Assignee emails</label>
             <textarea className="input min-h-[100px]" value={emails} onChange={e => setEmails(e.target.value)}
               placeholder="one@example.com, two@example.com&#10;three@example.com" />
             <div className="text-[11px] text-vs-mute mt-1">Separate with commas, spaces, or newlines.</div>
+          </div>
+        )}
+
+        {mode === 'roster' && (
+          <div className="space-y-2">
+            <div>
+              <label className="label">Campus</label>
+              <div className="flex flex-wrap gap-2">
+                {CAMPUSES.filter(c => c !== 'Dummy').map(c => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => setRosterCampuses(s => toggleSet(s, c))}
+                    className={`px-2 py-1 rounded border text-xs ${rosterCampuses.has(c) ? 'bg-vs-accent/20 border-vs-accent text-vs-text' : 'border-vs-border text-vs-mute hover:text-vs-text'}`}
+                  >{c}</button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="label">Batch</label>
+              <div className="flex flex-wrap gap-2">
+                {BATCHES.map(b => (
+                  <button
+                    key={b}
+                    type="button"
+                    onClick={() => setRosterBatches(s => toggleSet(s, b))}
+                    className={`px-2 py-1 rounded border text-xs ${rosterBatches.has(b) ? 'bg-vs-accent/20 border-vs-accent text-vs-text' : 'border-vs-border text-vs-mute hover:text-vs-text'}`}
+                  >{b}</button>
+                ))}
+              </div>
+            </div>
+            <div className="text-[11px] text-vs-mute">
+              {rosterLoading
+                ? 'Looking up roster…'
+                : rosterCampuses.size === 0 || rosterBatches.size === 0
+                  ? 'Pick at least one campus and one batch.'
+                  : `${rosterPreview.length} student${rosterPreview.length === 1 ? '' : 's'} will receive this assignment.`}
+            </div>
+          </div>
+        )}
+
+        {mode === 'public' && (
+          <div className="border border-vs-border rounded p-3 bg-vs-bg text-[11px] text-vs-mute">
+            Every signed-in student sees this assignment during the window.
+            No roster lookup — this includes anyone who signs up later.
           </div>
         )}
         <div className="space-y-3">

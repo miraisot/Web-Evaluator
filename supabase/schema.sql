@@ -21,6 +21,22 @@ alter table public.profiles add column if not exists campus text;
 alter table public.profiles add column if not exists semester text;
 alter table public.profiles add column if not exists section text;
 alter table public.profiles add column if not exists uid text;   -- university ID from signup
+alter table public.profiles add column if not exists batch text; -- e.g. '2025', '2026'
+
+-- Pre-registration list used to assign to a whole campus/batch before
+-- students sign up. See supabase/migration_roster.sql for details.
+create table if not exists public.student_roster (
+  email text primary key,
+  name  text,
+  uid   text,
+  campus text check (campus in ('Hi-Tech', 'RGIB', 'JU')),
+  batch  text not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists student_roster_campus_batch_idx
+  on public.student_roster (campus, batch);
+create index if not exists student_roster_batch_idx
+  on public.student_roster (batch);
 
 create table if not exists public.projects (
   id uuid primary key default gen_random_uuid(),
@@ -144,16 +160,19 @@ $$;
 -- supplied via supabase.auth.signUp({ options: { data: {...} } }).
 create or replace function public.handle_new_user() returns trigger
 language plpgsql security definer set search_path = public as $$
+declare r public.student_roster%rowtype;
 begin
-  insert into public.profiles (id, email, full_name, uid, campus, semester, section)
+  select * into r from public.student_roster where lower(email) = lower(new.email);
+  insert into public.profiles (id, email, full_name, uid, campus, semester, section, batch)
   values (
     new.id,
     lower(new.email),
-    nullif(new.raw_user_meta_data->>'full_name', ''),
-    nullif(trim(new.raw_user_meta_data->>'uid'), ''),
-    nullif(new.raw_user_meta_data->>'campus', ''),
+    coalesce(nullif(new.raw_user_meta_data->>'full_name', ''), r.name),
+    coalesce(nullif(trim(new.raw_user_meta_data->>'uid'), ''), r.uid),
+    coalesce(nullif(new.raw_user_meta_data->>'campus', ''), r.campus),
     nullif(new.raw_user_meta_data->>'semester', ''),
-    nullif(new.raw_user_meta_data->>'section', '')
+    nullif(new.raw_user_meta_data->>'section', ''),
+    coalesce(nullif(new.raw_user_meta_data->>'batch', ''), r.batch)
   )
   on conflict (id) do nothing;
   return new;
@@ -173,6 +192,7 @@ create trigger on_auth_user_created
 -- ---------- RLS ------------------------------------------------------
 
 alter table public.profiles           enable row level security;
+alter table public.student_roster     enable row level security;
 alter table public.projects           enable row level security;
 alter table public.project_assets     enable row level security;
 alter table public.assignments        enable row level security;
@@ -191,6 +211,14 @@ create policy profiles_self_update on public.profiles for update
   with check (id = auth.uid() and role = (select role from public.profiles where id = auth.uid()));
 create policy profiles_admin_read  on public.profiles for select using (public.is_admin());
 create policy profiles_admin_write on public.profiles for update using (public.is_admin()) with check (public.is_admin());
+
+-- student_roster
+drop policy if exists roster_admin_all on public.student_roster;
+drop policy if exists roster_self_read on public.student_roster;
+create policy roster_admin_all on public.student_roster
+  for all using (public.is_admin()) with check (public.is_admin());
+create policy roster_self_read on public.student_roster
+  for select using (lower(email) = public.current_email());
 
 -- projects (admin RW; students read only if they have an active-or-future assignment)
 drop policy if exists projects_admin_all      on public.projects;

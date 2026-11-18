@@ -24,16 +24,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(data.session)
       if (!data.session) setLoading(false)
     })
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => {
-      setSession(s)
-      if (!s) { setProfile(null); setLoading(false) }
+    // Only react to real sign-in / sign-out transitions. Supabase also fires
+    // TOKEN_REFRESHED / INITIAL_SESSION on tab focus with a fresh session
+    // object; updating state for those would re-run the profile fetch and
+    // flip `loading` to true, which unmounts whichever page the user is on
+    // (editor state gets lost — feels like a reload).
+    const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
+      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'USER_UPDATED') {
+        setSession(prev => {
+          if (prev?.user.id === s?.user.id) return prev
+          return s
+        })
+        if (!s) { setProfile(null); setLoading(false) }
+      }
     })
     return () => sub.subscription.unsubscribe()
   }, [])
 
   useEffect(() => {
     if (!session) return
-    setLoading(true)
+    // Don't flip loading to true on refetches — it unmounts the current page.
+    // Only show the top-level "Loading…" screen while we have no profile yet.
+    setLoading(p => (profile ? p : true))
     supabase
       .from('profiles')
       .select('id, email, role, full_name, campus, semester, section')
@@ -43,6 +55,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setProfile(data as Profile | null)
         setLoading(false)
       })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session])
 
   async function signOut() {
