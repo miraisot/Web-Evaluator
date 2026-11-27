@@ -10,6 +10,7 @@ import FileTree from '../components/FileTree'
 import QuizTaker from '../components/QuizTaker'
 import { isAnswered, normalizeQuiz } from '../lib/quiz'
 import { gradeSubmission } from '../lib/aiGrade'
+import { exitExam, inSafeExamBrowser } from '../lib/seb'
 import type { Assignment, FileMap, Project, ProjectAsset, ProjectType } from '../lib/types'
 // Bundled reference docs served from inside the app so they work under
 // Safe Exam Browser without widening the URL allow-list.
@@ -92,6 +93,13 @@ export default function Solve() {
   const [referenceOpen, setReferenceOpen] = useState(false)   // fullscreen reader
   const [expectedOpen, setExpectedOpen] = useState(false)
   const [autoSubmitted, setAutoSubmitted] = useState<null | 'ok' | 'fail'>(null)
+  // After a successful auto-submit inside SEB, close SEB via the quit URL
+  // (a short pause so the student can read the banner).
+  useEffect(() => {
+    if (autoSubmitted !== 'ok' || !inSafeExamBrowser()) return
+    const t = setTimeout(() => { void exitExam() }, 5000)
+    return () => clearTimeout(t)
+  }, [autoSubmitted])
   const [autoSubmitError, setAutoSubmitError] = useState<string | null>(null)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'offline'>('idle')
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null)
@@ -134,6 +142,12 @@ export default function Solve() {
         .maybeSingle()
       if (error) { setErr(error.message); setLoading(false); return }
       if (!data) { setErr('Assignment not found or not visible'); setLoading(false); return }
+      // The database hides the project until starts_at.
+      if (!(data as { project: unknown }).project) {
+        setErr(`This assignment opens at ${new Date((data as Assignment).starts_at).toLocaleString()}.`)
+        setLoading(false)
+        return
+      }
       const row = data as unknown as AssignmentRow
       setAssignment(row)
 
@@ -560,6 +574,11 @@ export default function Solve() {
     localStorage.removeItem(draftKey(assignment.id))
     await supabase.from('submission_drafts').delete()
       .eq('assignment_id', assignment.id).eq('student_id', profile.id)
+    if (inSafeExamBrowser()) {
+      alert('Submitted! Safe Exam Browser will now close.')
+      await exitExam()
+      return
+    }
     alert('Submitted!')
     nav('/')
   }
@@ -579,7 +598,9 @@ export default function Solve() {
             <span className="text-vs-text">{new Date(alreadySubmittedAt).toLocaleString()}</span>.
             Only one submission per assignment is allowed.
           </p>
-          <Link to="/" className="btn inline-block">Back to home</Link>
+          {inSafeExamBrowser()
+            ? <button className="btn" onClick={() => void exitExam()}>Exit exam</button>
+            : <Link to="/" className="btn inline-block">Back to home</Link>}
         </div>
       </div>
     )
@@ -662,7 +683,7 @@ export default function Solve() {
             : 'bg-red-900/30 border-b border-red-700 text-red-200'}`}>
           <div className="flex-1 min-w-0">
             {autoSubmitted === 'ok' ? (
-              <span>⏱ Time's up — your work was auto-submitted.</span>
+              <span>⏱ Time's up — your work was auto-submitted.{inSafeExamBrowser() && ' Safe Exam Browser will close in a few seconds.'}</span>
             ) : (
               <>
                 <div>⏱ Time's up — auto-submit failed. Your draft is saved locally.</div>

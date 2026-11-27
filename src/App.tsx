@@ -5,6 +5,7 @@ import Login from './pages/Login'
 import ResetPassword from './pages/ResetPassword'
 import Home from './pages/Home'
 import Solve from './pages/Solve'
+import ExamDone from './pages/ExamDone'
 import AdminLayout from './pages/admin/AdminLayout'
 import Projects from './pages/admin/Projects'
 import ProjectEdit from './pages/admin/ProjectEdit'
@@ -46,6 +47,7 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/exam/done" element={<ExamDone />} />
         <Route path="/" element={<Protected><Home /></Protected>} />
         <Route path="/solve/:assignmentId" element={<Protected><Solve /></Protected>} />
         <Route path="/admin" element={<Protected admin><AdminLayout /></Protected>}>

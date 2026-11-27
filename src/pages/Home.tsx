@@ -6,7 +6,9 @@ import { useAuth } from '../lib/auth'
 import BrandLogo from '../components/BrandLogo'
 import type { Assignment, Project } from '../lib/types'
 
-type Row = Assignment & { project: Pick<Project, 'title' | 'description' | 'project_type'> }
+// project is null until the assignment opens: the database hides it so the
+// problem can't be read early.
+type Row = Assignment & { project: Pick<Project, 'title' | 'description' | 'project_type'> | null }
 
 type Filter = 'all' | 'new' | 'submitted'
 
@@ -127,8 +129,8 @@ export default function Home() {
                   <div className="flex items-start justify-between gap-4">
                     <div>
                       <div className="font-medium flex items-center gap-2">
-                        {r.project.title}
-                        {r.project.project_type === 'quiz' && (
+                        {r.project?.title ?? <span className="text-vs-mute">Exam — details shown when it opens</span>}
+                        {r.project?.project_type === 'quiz' && (
                           <span className="text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wide bg-violet-900/40 text-violet-200">Quiz</span>
                         )}
                       </div>

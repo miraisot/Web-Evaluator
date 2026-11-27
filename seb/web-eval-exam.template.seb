@@ -7,9 +7,17 @@
 	<key>startURL</key>
 	<string>https://web-evaluator.vercel.app/</string>
 	<key>sendBrowserExamKey</key>
-	<false/>
+	<true/>
+	<key>examKeySalt</key>
+	<data>yLfB0iwJchmg5hNYrT2YnWsshVgp4JTxQz0q2OgYbGg=</data>
 
 	<key>allowQuit</key>
+	<true/>
+	<key>quitURL</key>
+	<string>https://web-evaluator.vercel.app/exam/done</string>
+	<key>quitURLConfirm</key>
+	<false/>
+	<key>enablePrivateClipboard</key>
 	<true/>
 
 	<key>browserWindowAllowReload</key>

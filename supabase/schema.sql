@@ -229,6 +229,8 @@ create policy projects_assigned_read on public.projects for select using (
     select 1 from public.assignments a
     where a.project_id = projects.id
       and (a.is_public or lower(a.assignee_email) = public.current_email())
+      -- Hidden until the exam opens, so nobody can read their problem early.
+      and now() >= a.starts_at
   )
 );
 
@@ -241,6 +243,7 @@ create policy assets_assigned_read on public.project_assets for select using (
     select 1 from public.assignments a
     where a.project_id = project_assets.project_id
       and (a.is_public or lower(a.assignee_email) = public.current_email())
+      and now() >= a.starts_at
   )
 );
 
