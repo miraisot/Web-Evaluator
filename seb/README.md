@@ -37,10 +37,14 @@ Assignments → *Safe Exam Browser*). Then:
   the database refuses to show the problem or accept drafts/submissions.
 - Opening it in SEB with any other or edited .seb file is refused the same
   way (its Config Key doesn't match).
-- One device at a time: a second laptop on the same account is refused
-  while the first is active. If a laptop dies, the student can continue on
-  another after ~90 s, or immediately after an invigilator presses
-  **Release** (Admin → Exam security).
+- **Leaving needs an invigilator to get back in.** A student who quits SEB,
+  whose laptop dies, or who opens the exam on another device sees "Waiting
+  for the invigilator" and can't continue until an invigilator presses
+  **Approve** under *Waiting to re-enter* (top of Admin → Exam security). The
+  page then continues by itself; approving also closes the exam on any other
+  device. **Deny** keeps them out. A reload inside the same SEB window is not
+  leaving and needs no approval. Every request and decision (and who made it)
+  is logged.
 - Every refusal is logged with time, IP and browser: Admin → **Exam
   security** (live, refreshes every 15 s) and the *Exam integrity* box on
   each submission.

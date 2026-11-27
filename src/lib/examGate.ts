@@ -87,6 +87,13 @@ async function attempt(assignmentId: string): Promise<GateResult> {
   return { ok: true, required: Boolean(res.required) }
 }
 
+/** Status of this student's re-entry request: none | pending | approved | denied | used. */
+export async function reentryStatus(assignmentId: string): Promise<string | null> {
+  const { data, error } = await supabase.rpc('exam_reentry_status', { p_assignment: assignmentId })
+  if (error || !data) return null
+  return (data as { status?: string }).status ?? null
+}
+
 /** Keeps the session alive. Returns the reason if it was ended elsewhere. */
 export async function examHeartbeat(assignmentId: string): Promise<string | null> {
   const { data, error } = await supabase.rpc('exam_heartbeat', { p_assignment: assignmentId })

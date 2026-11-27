@@ -11,7 +11,7 @@ import QuizTaker from '../components/QuizTaker'
 import { isAnswered, normalizeQuiz } from '../lib/quiz'
 import { gradeSubmission } from '../lib/aiGrade'
 import { exitExam, inSafeExamBrowser } from '../lib/seb'
-import { examHeartbeat, openExamSession } from '../lib/examGate'
+import { examHeartbeat, openExamSession, reentryStatus } from '../lib/examGate'
 import { GATE_MESSAGES, type GateFailure } from '../lib/examSession'
 import { startExamTracker, type ExamTracker } from '../lib/examTracker'
 import type { Assignment, FileMap, Project, ProjectAsset, ProjectType } from '../lib/types'
@@ -352,6 +352,25 @@ export default function Solve() {
     }
   }, [assignmentId, profile, loading, alreadySubmittedAt, assignment, gateError, err])
 
+  // Waiting for an invigilator to approve re-entry: poll, then continue by
+  // itself (a reload runs the gate again, which uses the approval).
+  useEffect(() => {
+    if (gateError !== 'needs_approval' || !assignmentId) return
+    let stopped = false
+    const check = async () => {
+      const st = await reentryStatus(assignmentId)
+      if (stopped) return
+      if (st === 'approved') {
+        try { sessionStorage.removeItem(`web-eval:exam-nonce-redirect:${assignmentId}`) } catch { /* ok */ }
+        window.location.reload()
+      } else if (st === 'denied') {
+        setGateError('reentry_denied')
+      }
+    }
+    const t = setInterval(check, 4000)
+    return () => { stopped = true; clearInterval(t) }
+  }, [gateError, assignmentId])
+
   // Activity tracking (pastes, focus loss, typing…) while the exam is open and
   // not yet submitted. See src/lib/examTracker.ts.
   const trackerRef = useRef<ExamTracker | null>(null)
@@ -660,9 +679,16 @@ export default function Solve() {
     return (
       <div className="min-h-screen grid place-items-center p-6">
         <div className="card max-w-lg text-center space-y-4">
-          <div className="text-4xl">🔒</div>
-          <h1 className="text-lg font-semibold">Safe Exam Browser required</h1>
+          <div className="text-4xl">{gateError === 'needs_approval' ? '✋' : '🔒'}</div>
+          <h1 className="text-lg font-semibold">
+            {gateError === 'needs_approval' ? 'Waiting for the invigilator'
+              : gateError === 'reentry_denied' ? 'Re-entry not approved'
+              : 'Safe Exam Browser required'}
+          </h1>
           <p className="text-sm text-vs-mute">{GATE_MESSAGES[gateError]}</p>
+          {gateError === 'needs_approval' && (
+            <p className="text-xs text-vs-mute animate-pulse">Checking for approval…</p>
+          )}
           <div className="flex justify-center gap-2">
             <button className="btn" onClick={() => {
               try { sessionStorage.removeItem(`web-eval:exam-nonce-redirect:${assignmentId}`) } catch { /* ok */ }
@@ -778,6 +804,8 @@ export default function Solve() {
             <p className="text-sm text-vs-mute">
               {sessionLost === 'replaced'
                 ? 'This exam was opened on another device.'
+                : sessionLost === 'reentry_approved'
+                ? 'An invigilator let this exam continue on another device.'
                 : 'The session was ended by an invigilator or has expired.'}{' '}
               Your work up to the last save is kept. Ask your invigilator before continuing.
             </p>

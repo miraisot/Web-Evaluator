@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import type { SebConfig } from '../../lib/types'
 import ExamActivity from '../../components/ExamActivity'
+import ReentryRequests from '../../components/ReentryRequests'
 import { parseCidrList } from '../../lib/cidr'
 
 const HEX64 = /^[0-9a-f]{64}$/
@@ -73,6 +74,8 @@ export default function ExamSecurity() {
 
   return (
     <div className="space-y-8">
+      {/* First on the page: on exam day this is what invigilators act on. */}
+      <div className="card"><ReentryRequests /></div>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <form onSubmit={add} className="card space-y-3 h-fit">
           <h2 className="font-semibold">Add a Safe Exam Browser config</h2>
