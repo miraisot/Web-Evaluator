@@ -12,6 +12,7 @@ import ProjectEdit from './pages/admin/ProjectEdit'
 import Assignments from './pages/admin/Assignments'
 import Submissions from './pages/admin/Submissions'
 import SubmissionView from './pages/admin/SubmissionView'
+import ExamSecurity from './pages/admin/ExamSecurity'
 
 function Protected({ children, admin }: { children: JSX.Element; admin?: boolean }) {
   const { session, profile, loading } = useAuth()
@@ -57,6 +58,7 @@ export default function App() {
           <Route path="assignments" element={<Assignments />} />
           <Route path="submissions" element={<Submissions />} />
           <Route path="submissions/:id" element={<SubmissionView />} />
+          <Route path="exam-security" element={<ExamSecurity />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

@@ -1,6 +1,13 @@
 # Exam integrity plan — Web Evaluator + Safe Exam Browser
 
-Status: proposal (2026-11-27). Nothing below is built yet.
+Status (2026-11-27): steps 1–6 built — problems hidden until start; SEB file
+closes itself; SEB Config Key gate with exam sessions, one device at a time,
+blocked-attempt log, admin *Exam security* page; activity tracking (pastes,
+non-typed inserts, copying the problem, time away, typing per minute, extra
+screens, Print Screen), code history with replay, per-submission risk badge
+(Flagged / Review / Clean) with reasons, filter and CSV column. Step 7
+(similarity between students) not started. Thresholds: `src/lib/integrity.ts`.
+Setup: `seb/README.md` → "Exam lock".
 
 ## 1. What is wrong today (found in the code)
 

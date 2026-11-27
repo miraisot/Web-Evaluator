@@ -6,6 +6,7 @@ import { gradeSubmission, sleep } from '../../lib/aiGrade'
 import { fetchAll } from '../../lib/fetchAll'
 import type { Submission, Assignment, Project, Profile, Evaluation, Course, Category, Campus } from '../../lib/types'
 import { COURSES, courseFor, CATEGORIES, categoryFor, CAMPUSES, rubricFor } from '../../lib/types'
+import { assessRisk, RISK_BADGE, summaryKey, type IntegritySummary, type Risk, type RiskLevel } from '../../lib/integrity'
 
 const GRADE_INTERVAL_MS = 5000  // 12 RPM — under Gemini free tier 15 RPM
 
@@ -38,7 +39,7 @@ function downloadCsv(filename: string, header: string[], rows: string[][]) {
   URL.revokeObjectURL(url)
 }
 
-function exportCourse(course: Course, rows: Row[]) {
+function exportCourse(course: Course, rows: Row[], riskOf: (r: Row) => Risk) {
   const sample = rows.find(r => r.assignment.project.project_type != null)
   const rubric = rubricFor(sample?.assignment.project.project_type)
   const header = [
@@ -46,6 +47,7 @@ function exportCourse(course: Course, rows: Row[]) {
     'Project', 'Submitted At', 'Auto-collected',
     ...rubric.flatMap(c => [`${c.label} (/${c.max})`, `${c.label} feedback`]),
     'Total', 'Max', 'Graded At', 'Overall Summary',
+    'Integrity', 'Integrity notes',
   ]
   const data = rows.map(r => {
     const ev = r.evaluation
@@ -69,6 +71,8 @@ function exportCourse(course: Course, rows: Row[]) {
       ev?.max_total != null ? String(ev.max_total) : '',
       ev?.graded_at ? new Date(ev.graded_at).toISOString() : '',
       ev?.feedback || '',
+      RISK_BADGE[riskOf(r).level].label,
+      riskOf(r).level === 'clean' || riskOf(r).level === 'untracked' ? '' : riskOf(r).reasons.join(' '),
     ]
   })
   const stamp = new Date().toISOString().slice(0, 10)
@@ -106,6 +110,15 @@ export default function Submissions() {
   const [gradeProgress, setGradeProgress] = useState<{ done: number; total: number; failed: number; current: string | null }>({ done: 0, total: 0, failed: 0, current: null })
   const [gradeError, setGradeError] = useState<string | null>(null)
   const [cancelGrading, setCancelGrading] = useState(false)
+  // Exam integrity: per student + assignment counters (exam_integrity_summary).
+  const [summaries, setSummaries] = useState<Map<string, IntegritySummary>>(new Map())
+  const [riskFilter, setRiskFilter] = useState<'all' | RiskLevel>('all')
+  useEffect(() => {
+    fetchAll((from, to) => supabase.from('exam_integrity_summary').select('*')
+      .order('assignment_id', { ascending: true }).order('student_id', { ascending: true }).range(from, to))
+      .then(data => setSummaries(new Map((data as IntegritySummary[] || []).map(s => [summaryKey(s.assignment_id, s.student_id), s]))))
+      .catch(e => console.warn('[submissions] integrity summary unavailable:', e))
+  }, [])
 
   useEffect(() => {
     // Paged: there are more than 1000 submissions, the API's per-request cap.
@@ -130,6 +143,19 @@ export default function Submissions() {
         setLoading(false)
       })
   }, [])
+
+  // Risk per submission, computed once per data load.
+  const riskById = useMemo(() => {
+    const m = new Map<string, Risk>()
+    for (const r of rows) m.set(r.id, assessRisk(summaries.get(summaryKey(r.assignment_id, r.student_id))))
+    return m
+  }, [rows, summaries])
+  const riskOf = (r: Row): Risk => riskById.get(r.id) ?? assessRisk(null)
+  const riskCounts = useMemo(() => {
+    const c: Record<RiskLevel, number> = { flagged: 0, review: 0, clean: 0, untracked: 0 }
+    for (const v of riskById.values()) c[v.level]++
+    return c
+  }, [riskById])
 
   const counts = useMemo(() => ({
     all: rows.length,
@@ -170,6 +196,7 @@ export default function Submissions() {
     if (courseFilter !== 'all' && courseFor(r.assignment.project.project_type) !== courseFilter) return false
     if (categoryFilter !== 'all' && categoryFor(r.assignment.project) !== categoryFilter) return false
     if (campusFilter !== 'all' && campusKeyFor(r) !== campusFilter) return false
+    if (riskFilter !== 'all' && riskOf(r).level !== riskFilter) return false
     if (!q) return true
     const hay = [
       r.student?.email, r.student?.full_name, r.student?.uid, r.student?.campus,
@@ -299,6 +326,18 @@ export default function Submissions() {
             </button>
           ))}
         </div>
+        <div className="flex items-center gap-1 text-xs" title="Exam integrity signals from activity tracking">
+          {(['all', 'flagged', 'review', 'clean', 'untracked'] as const).map(k => (
+            <button
+              key={k}
+              onClick={() => setRiskFilter(k)}
+              className={`px-2 py-1 rounded border ${riskFilter === k ? 'bg-vs-accent text-white border-vs-accent' : 'border-vs-border text-vs-mute hover:text-vs-text'}`}
+            >
+              {k === 'all' ? 'Any integrity' : RISK_BADGE[k].label}
+              {k !== 'all' && <span className="opacity-70"> ({riskCounts[k]})</span>}
+            </button>
+          ))}
+        </div>
         <div className="flex items-center gap-1 text-xs">
           {(['all', ...CATEGORIES] as CategoryFilter[]).map(e => (
             <button
@@ -390,7 +429,7 @@ export default function Submissions() {
                         <span className="opacity-60">·</span>
                         <span>{items.length}</span>
                         <button
-                          onClick={() => exportCourse(course, items)}
+                          onClick={() => exportCourse(course, items, riskOf)}
                           className="ml-auto px-2 py-0.5 rounded border border-vs-border normal-case tracking-normal text-vs-mute hover:text-vs-text"
                           title={`Download ${course} rows as CSV`}
                         >
@@ -420,6 +459,14 @@ export default function Submissions() {
                 </div>
               </div>
               <div className="flex items-center gap-3 shrink-0">
+                {(() => {
+                  const risk = riskOf(r)
+                  return (
+                    <span className={`text-xs px-2 py-1 rounded border ${RISK_BADGE[risk.level].cls}`} title={risk.reasons.join('\n')}>
+                      {RISK_BADGE[risk.level].label}
+                    </span>
+                  )
+                })()}
                 {r.evaluation?.pending_manual ? (
                   <span
                     className="text-xs px-2 py-1 rounded bg-amber-500/10 text-amber-300 border border-amber-500/30 font-mono"

@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { fetchAll } from '../../lib/fetchAll'
-import type { Assignment, Project, Category, Course, Campus } from '../../lib/types'
+import type { Assignment, Project, Category, Course, Campus, SebConfig } from '../../lib/types'
 import { CATEGORIES, categoryFor, COURSES, courseFor, CAMPUSES, BATCHES } from '../../lib/types'
 
 type Row = Assignment & { project: Pick<Project, 'title' | 'project_type' | 'category'> }
@@ -59,9 +59,13 @@ export default function Assignments() {
   const [bulkStarts, setBulkStarts] = useState('')
   const [bulkEnds, setBulkEnds] = useState('')
   const [bulkBusy, setBulkBusy] = useState(false)
+  // Safe Exam Browser: config to require on new assignments, and for bulk.
+  const [sebConfigs, setSebConfigs] = useState<SebConfig[]>([])
+  const [sebConfigId, setSebConfigId] = useState('')
+  const [bulkSeb, setBulkSeb] = useState<string>('keep')
 
   async function load() {
-    const [{ data: p }, a] = await Promise.all([
+    const [{ data: p }, a, { data: sc }] = await Promise.all([
       supabase.from('projects').select('id, title, project_type, category').order('created_at', { ascending: false }),
       // Paged: there are more than 1000 assignments, the API's per-request cap.
       fetchAll((from, to) => supabase.from('assignments')
@@ -70,7 +74,9 @@ export default function Assignments() {
         .order('id', { ascending: true })
         .range(from, to))
         .catch(e => { console.error('[assignments] load failed:', e); return [] }),
+      supabase.from('seb_configs').select('*').order('created_at', { ascending: false }),
     ])
+    setSebConfigs((sc as SebConfig[]) || [])
     setProjects((p as Project[]) || [])
     setRows((a as unknown as Row[]) || [])
   }
@@ -118,7 +124,8 @@ export default function Assignments() {
     // Re-saving an existing assignment only moves its times, in place. Never
     // delete and re-insert: deleting an assignment also deletes the students'
     // drafts and submissions for it.
-    const times = { starts_at: startsISO, ends_at: endsISO }
+    // Re-saving also applies the Safe Exam Browser choice.
+    const times = { starts_at: startsISO, ends_at: endsISO, seb_config_id: sebConfigId || null }
     // Roster mode is just "fill emails from the roster, then run the
     // per-email flow" — keeps RLS and the student view unchanged.
     let effectiveEmails = emails
@@ -244,15 +251,23 @@ export default function Assignments() {
     const endsISO = new Date(bulkEnds).toISOString()
     if (new Date(endsISO) <= new Date(startsISO)) return alert('End must be after start')
     const ids = [...selected]
-    if (!confirm(`Change the times of ${ids.length} assignment(s) to ${prettyLocal(bulkStarts)} → ${prettyLocal(bulkEnds)}?`)) return
+    const patch: Record<string, string | null> = { starts_at: startsISO, ends_at: endsISO }
+    let sebNote = ''
+    if (bulkSeb !== 'keep') {
+      patch.seb_config_id = bulkSeb === 'none' ? null : bulkSeb
+      sebNote = bulkSeb === 'none'
+        ? '\nSafe Exam Browser: not required'
+        : `\nSafe Exam Browser: required (${sebConfigs.find(c => c.id === bulkSeb)?.name})`
+    }
+    if (!confirm(`Change ${ids.length} assignment(s) to ${prettyLocal(bulkStarts)} → ${prettyLocal(bulkEnds)}?${sebNote}`)) return
     setBulkBusy(true)
     for (let i = 0; i < ids.length; i += 100) {
       const { error } = await supabase.from('assignments')
-        .update({ starts_at: startsISO, ends_at: endsISO }).in('id', ids.slice(i, i + 100))
+        .update(patch).in('id', ids.slice(i, i + 100))
       if (error) { setBulkBusy(false); load(); return alert(`Stopped after ${i} of ${ids.length}: ${error.message}`) }
     }
     setBulkBusy(false)
-    alert(`Times changed for ${ids.length} assignment(s).`)
+    alert(`Updated ${ids.length} assignment(s).`)
     clearSelection()
     load()
   }
@@ -381,6 +396,16 @@ export default function Assignments() {
             </div>
           </div>
         </div>
+        <div>
+          <label className="label">Safe Exam Browser</label>
+          <select className="input" value={sebConfigId} onChange={e => setSebConfigId(e.target.value)}>
+            <option value="">Not required</option>
+            {sebConfigs.map(c => <option key={c.id} value={c.id}>Required: {c.name}</option>)}
+          </select>
+          <div className="text-[11px] text-vs-mute mt-1">
+            Required = the exam opens only in Safe Exam Browser started with that .seb file. Add configs under <b>Exam security</b>.
+          </div>
+        </div>
         <button className="btn w-full" disabled={busy}>{busy ? '…' : 'Assign'}</button>
       </form>
 
@@ -424,7 +449,15 @@ export default function Assignments() {
               <label className="label">New end</label>
               <input type="datetime-local" className="input" value={bulkEnds} onChange={e => setBulkEnds(e.target.value)} />
             </div>
-            <button className="btn" onClick={applyBulk} disabled={bulkBusy}>{bulkBusy ? '…' : 'Change times'}</button>
+            <div>
+              <label className="label">Safe Exam Browser</label>
+              <select className="input" value={bulkSeb} onChange={e => setBulkSeb(e.target.value)}>
+                <option value="keep">Keep as is</option>
+                <option value="none">Not required</option>
+                {sebConfigs.map(c => <option key={c.id} value={c.id}>Required: {c.name}</option>)}
+              </select>
+            </div>
+            <button className="btn" onClick={applyBulk} disabled={bulkBusy}>{bulkBusy ? '…' : 'Apply'}</button>
             <button className="btn-ghost" onClick={clearSelection} disabled={bulkBusy}>Clear</button>
             <div className="w-full text-[11px] text-vs-mute">
               Updates the selected assignments in place. Students' drafts and submissions are kept.
@@ -463,6 +496,10 @@ export default function Assignments() {
                             ? <span className="inline-block mr-2 px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wide bg-emerald-900/40 border border-emerald-700 text-emerald-300">Public</span>
                             : <span className="font-mono">{a.assignee_email}</span>}
                           <span className="text-vs-mute">· {a.project.title}</span>
+                          {a.seb_config_id && (
+                            <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wide bg-amber-900/40 text-amber-200"
+                              title={sebConfigs.find(c => c.id === a.seb_config_id)?.name}>SEB</span>
+                          )}
                         </div>
                         <div className="text-xs text-vs-mute">
                           {prettyLocal(a.starts_at)} → {prettyLocal(a.ends_at)}

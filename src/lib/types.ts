@@ -106,6 +106,16 @@ export interface Assignment {
   starts_at: string
   ends_at: string
   created_at: string
+  /** Set = must be taken in Safe Exam Browser with this config (see seb_configs). */
+  seb_config_id?: string | null
+}
+
+export interface SebConfig {
+  id: string
+  name: string
+  config_keys: string[]
+  browser_exam_keys: string[]
+  created_at: string
 }
 
 export interface Submission {
