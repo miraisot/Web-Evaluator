@@ -16,6 +16,7 @@ export default function AdminLayout() {
             <NavLink to="/admin/projects" className={tab}>Projects</NavLink>
             <NavLink to="/admin/assignments" className={tab}>Assignments</NavLink>
             <NavLink to="/admin/submissions" className={tab}>Submissions</NavLink>
+            <NavLink to="/admin/exam-security" className={tab}>Exam security</NavLink>
           </nav>
         </div>
         <div className="flex items-center gap-3 text-sm">

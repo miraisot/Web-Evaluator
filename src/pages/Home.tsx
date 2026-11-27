@@ -129,7 +129,13 @@ export default function Home() {
                   <div className="flex items-start justify-between gap-4">
                     <div>
                       <div className="font-medium flex items-center gap-2">
-                        {r.project?.title ?? <span className="text-vs-mute">Exam — details shown when it opens</span>}
+                        {r.project?.title ?? <span className="text-vs-mute">
+                          {upcoming ? 'Exam — details shown when it opens' : 'Exam — open it to see the problem'}
+                        </span>}
+                        {r.seb_config_id && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wide bg-amber-900/40 text-amber-200"
+                            title="Open this exam with the .seb file from your invigilator">Safe Exam Browser</span>
+                        )}
                         {r.project?.project_type === 'quiz' && (
                           <span className="text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wide bg-violet-900/40 text-violet-200">Quiz</span>
                         )}

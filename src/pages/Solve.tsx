@@ -11,6 +11,9 @@ import QuizTaker from '../components/QuizTaker'
 import { isAnswered, normalizeQuiz } from '../lib/quiz'
 import { gradeSubmission } from '../lib/aiGrade'
 import { exitExam, inSafeExamBrowser } from '../lib/seb'
+import { examHeartbeat, openExamSession } from '../lib/examGate'
+import { GATE_MESSAGES, type GateFailure } from '../lib/examSession'
+import { startExamTracker, type ExamTracker } from '../lib/examTracker'
 import type { Assignment, FileMap, Project, ProjectAsset, ProjectType } from '../lib/types'
 // Bundled reference docs served from inside the app so they work under
 // Safe Exam Browser without widening the URL allow-list.
@@ -93,6 +96,11 @@ export default function Solve() {
   const [referenceOpen, setReferenceOpen] = useState(false)   // fullscreen reader
   const [expectedOpen, setExpectedOpen] = useState(false)
   const [autoSubmitted, setAutoSubmitted] = useState<null | 'ok' | 'fail'>(null)
+  // Safe Exam Browser gate: why the exam session couldn't be opened, whether
+  // one is open, and why it ended if the server ended it mid-exam.
+  const [gateError, setGateError] = useState<GateFailure | null>(null)
+  const [examSessionOpen, setExamSessionOpen] = useState(false)
+  const [sessionLost, setSessionLost] = useState<string | null>(null)
   // After a successful auto-submit inside SEB, close SEB via the quit URL
   // (a short pause so the student can read the banner).
   useEffect(() => {
@@ -100,6 +108,18 @@ export default function Solve() {
     const t = setTimeout(() => { void exitExam() }, 5000)
     return () => clearTimeout(t)
   }, [autoSubmitted])
+  // Keep the exam session alive; if the server ended it (another device took
+  // over, admin released it), stop the student working on a dead session.
+  useEffect(() => {
+    if (!examSessionOpen || !assignmentId) return
+    let stopped = false
+    const beat = async () => {
+      const reason = await examHeartbeat(assignmentId)
+      if (!stopped && reason && reason !== 'submitted') setSessionLost(reason)
+    }
+    const t = setInterval(beat, 20_000)
+    return () => { stopped = true; clearInterval(t) }
+  }, [examSessionOpen, assignmentId])
   const [autoSubmitError, setAutoSubmitError] = useState<string | null>(null)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'offline'>('idle')
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null)
@@ -142,14 +162,15 @@ export default function Solve() {
         .maybeSingle()
       if (error) { setErr(error.message); setLoading(false); return }
       if (!data) { setErr('Assignment not found or not visible'); setLoading(false); return }
-      // The database hides the project until starts_at.
-      if (!(data as { project: unknown }).project) {
-        setErr(`This assignment opens at ${new Date((data as Assignment).starts_at).toLocaleString()}.`)
+      // The database hides the project until starts_at, and — for exams that
+      // require Safe Exam Browser — until an exam session is open.
+      let row = data as unknown as AssignmentRow
+      const startsMs = new Date(row.starts_at).getTime()
+      if (!row.project && Date.now() < startsMs) {
+        setErr(`This assignment opens at ${new Date(row.starts_at).toLocaleString()}.`)
         setLoading(false)
         return
       }
-      const row = data as unknown as AssignmentRow
-      setAssignment(row)
 
       // Block if the student has already submitted this assignment.
       const { data: existing } = await supabase
@@ -158,10 +179,32 @@ export default function Solve() {
         .eq('assignment_id', row.id)
         .maybeSingle()
       if (existing) {
+        setAssignment(row)
         setAlreadySubmittedAt((existing as { submitted_at: string }).submitted_at)
         setLoading(false)
         return
       }
+
+      const sebExamOpen = Boolean(row.seb_config_id)
+        && Date.now() >= startsMs && Date.now() <= new Date(row.ends_at).getTime()
+      if (sebExamOpen) {
+        const gate = await openExamSession(row.id)
+        if (!gate.ok) {
+          if ('redirecting' in gate) return // page reloads with the nonce; keep "Loading…"
+          setGateError(gate.reason); setLoading(false); return
+        }
+        setExamSessionOpen(gate.required)
+        // Re-read now that the session header unlocks the problem.
+        const { data: again, error: againErr } = await supabase
+          .from('assignments')
+          .select('*, project:projects(*)')
+          .eq('id', assignmentId)
+          .maybeSingle()
+        if (againErr) { setErr(againErr.message); setLoading(false); return }
+        if (again) row = again as unknown as AssignmentRow
+      }
+      if (!row.project) { setErr('Assignment not found or not visible'); setLoading(false); return }
+      setAssignment(row)
 
       const { data: a } = await supabase
         .from('project_assets')
@@ -243,7 +286,10 @@ export default function Solve() {
   // the server-side autosave below. The `at` timestamp lets the next load
   // compare freshness against the server copy.
   useEffect(() => {
-    if (!assignmentId || loading) return
+    // Only once the exam really loaded: on an error / gate screen `files` is
+    // the empty default, and saving it would make an empty local draft that
+    // looks newer than the student's real work on the server.
+    if (!assignmentId || loading || !assignment || gateError || err || alreadySubmittedAt) return
     try {
       localStorage.setItem(
         draftKey(assignmentId),
@@ -253,13 +299,13 @@ export default function Solve() {
     if (skipNextChangeRef.current) { skipNextChangeRef.current = false; return }
     dirtyRef.current = true
     setSaveStatus(s => (s === 'offline' ? 'offline' : 'saving'))
-  }, [files, folders, assignmentId, loading])
+  }, [files, folders, assignmentId, loading, assignment, gateError, err, alreadySubmittedAt])
 
   // Server-side autosave: every 3s, if dirty and not already in flight, upsert
   // the current snapshot. Also flush on page hide / unload so a last-moment
   // tab close still ships the latest state.
   useEffect(() => {
-    if (!assignmentId || !profile || loading || alreadySubmittedAt) return
+    if (!assignmentId || !profile || loading || alreadySubmittedAt || !assignment || gateError || err) return
     let cancelled = false
 
     async function flush() {
@@ -304,7 +350,31 @@ export default function Solve() {
       window.removeEventListener('pagehide', onBeforeUnload)
       window.removeEventListener('beforeunload', onBeforeUnload)
     }
-  }, [assignmentId, profile, loading, alreadySubmittedAt])
+  }, [assignmentId, profile, loading, alreadySubmittedAt, assignment, gateError, err])
+
+  // Activity tracking (pastes, focus loss, typing…) while the exam is open and
+  // not yet submitted. See src/lib/examTracker.ts.
+  const trackerRef = useRef<ExamTracker | null>(null)
+  const editorRef = useRef<Parameters<NonNullable<Parameters<typeof CodeEditor>[0]['onMount']>>[0] | null>(null)
+  const activeRef = useRef(active)
+  useEffect(() => { activeRef.current = active }, [active])
+  const trackingOn = Boolean(assignment) && !loading && !gateError && !err && !alreadySubmittedAt
+    && !autoSubmitted && remaining !== 'Time up'
+  useEffect(() => {
+    if (!trackingOn || !assignment) return
+    const problem = [
+      assignment.project.description || '',
+      ...normalizeQuiz(assignment.project.quiz).questions.flatMap(q => [q.prompt, ...q.options.map(o => o.text)]),
+    ].join('\n')
+    const tracker = startExamTracker({
+      assignmentId: assignment.id,
+      activeFile: () => activeRef.current,
+      problemText: () => problem,
+    })
+    trackerRef.current = tracker
+    if (editorRef.current) tracker.attachEditor(editorRef.current)
+    return () => { tracker.stop(); trackerRef.current = null }
+  }, [trackingOn, assignment])
 
   // Esc closes the problem/expected/reference modal or exits preview fullscreen
   useEffect(() => {
@@ -380,6 +450,7 @@ export default function Solve() {
       file_count: Object.keys(filesRef.current).length,
     })
     const answers = filesRef.current
+    try { await trackerRef.current?.flushNow() } catch { /* never block the auto-submit */ }
     const { data: inserted, error } = await supabase
       .from('submissions')
       .insert({ assignment_id: assignment.id, student_id: profile.id, files: answers })
@@ -562,6 +633,7 @@ export default function Solve() {
       if (!confirm(msg)) return
     } else if (!confirm('Submit this version for evaluation?')) return
     setSubmitting(true)
+    try { await trackerRef.current?.flushNow() } catch { /* never block submitting */ }
     const { data: inserted, error } = await supabase
       .from('submissions')
       .insert({ assignment_id: assignment.id, student_id: profile.id, files })
@@ -584,6 +656,24 @@ export default function Solve() {
   }
 
   if (loading) return <div className="p-6 text-vs-mute">Loading…</div>
+  if (gateError) {
+    return (
+      <div className="min-h-screen grid place-items-center p-6">
+        <div className="card max-w-lg text-center space-y-4">
+          <div className="text-4xl">🔒</div>
+          <h1 className="text-lg font-semibold">Safe Exam Browser required</h1>
+          <p className="text-sm text-vs-mute">{GATE_MESSAGES[gateError]}</p>
+          <div className="flex justify-center gap-2">
+            <button className="btn" onClick={() => {
+              try { sessionStorage.removeItem(`web-eval:exam-nonce-redirect:${assignmentId}`) } catch { /* ok */ }
+              window.location.reload()
+            }}>Reload</button>
+            <Link to="/" className="btn-ghost inline-block">Back to home</Link>
+          </div>
+        </div>
+      </div>
+    )
+  }
   if (err) return <div className="p-6 text-red-400">{err}</div>
   if (!assignment) return null
 
@@ -594,7 +684,7 @@ export default function Solve() {
           <div className="text-4xl">✓</div>
           <h1 className="text-lg font-semibold">Already submitted</h1>
           <p className="text-sm text-vs-mute">
-            You submitted <span className="text-vs-text">{assignment.project.title}</span> on{' '}
+            You submitted <span className="text-vs-text">{assignment.project?.title ?? 'this exam'}</span> on{' '}
             <span className="text-vs-text">{new Date(alreadySubmittedAt).toLocaleString()}</span>.
             Only one submission per assignment is allowed.
           </p>
@@ -650,6 +740,11 @@ export default function Solve() {
               : saveStatus === 'offline' ? '⚠ Offline (local only)'
               : '· Autosave on'}
           </span>
+          {trackingOn && (
+            <span className="text-vs-mute text-xs" title="Pastes, time away from this window and typing activity are recorded for exam integrity review.">
+              ● Activity recorded
+            </span>
+          )}
           <span className={`text-vs-mute ${remaining === 'Time up' ? 'text-red-400' : ''}`}>
             Time left: <span className="text-vs-text">{remaining}</span>
           </span>
@@ -672,6 +767,22 @@ export default function Solve() {
         <div className="shrink-0 px-4 py-2 text-sm bg-amber-900/30 border-b border-amber-700 text-amber-200 flex items-center justify-between">
           <span>⏰ Less than a minute left — your work will auto-submit at the deadline.</span>
           <button className="btn-ghost" onClick={() => setWarnLast60(false)}>Dismiss</button>
+        </div>
+      )}
+
+      {/* Exam session ended by the server: block further work on it. */}
+      {sessionLost && (
+        <div className="fixed inset-0 z-[60] bg-black/80 grid place-items-center p-6">
+          <div className="card max-w-md text-center space-y-4">
+            <h1 className="text-lg font-semibold">Your exam session has ended</h1>
+            <p className="text-sm text-vs-mute">
+              {sessionLost === 'replaced'
+                ? 'This exam was opened on another device.'
+                : 'The session was ended by an invigilator or has expired.'}{' '}
+              Your work up to the last save is kept. Ask your invigilator before continuing.
+            </p>
+            <button className="btn" onClick={() => window.location.reload()}>Reload</button>
+          </div>
         </div>
       )}
 
@@ -736,7 +847,7 @@ export default function Solve() {
               >«</button>
             </div>
             {!problemCollapsed && (
-              <div className="px-3 pb-3 max-h-72 overflow-auto">
+              <div className="px-3 pb-3 max-h-72 overflow-auto" data-exam-problem>
                 {assignment.project.description
                   ? <Markdown source={assignment.project.description} />
                   : <div className="text-xs text-vs-mute">—</div>}
@@ -909,7 +1020,8 @@ export default function Solve() {
           </div>
           <div className="flex-1 min-h-0">
             {active && files[active] != null
-              ? <CodeEditor file={active} value={files[active]} onChange={v => updateFile(active, v)} />
+              ? <CodeEditor file={active} value={files[active]} onChange={v => updateFile(active, v)}
+                  onMount={ed => { editorRef.current = ed; trackerRef.current?.attachEditor(ed) }} />
               : (
                 <div className="h-full grid place-items-center text-sm text-vs-mute">
                   No file open. Pick a file from the sidebar.
@@ -1068,7 +1180,7 @@ export default function Solve() {
                 >Close ✕</button>
               </div>
             </header>
-            <div className="overflow-auto px-8 py-6">
+            <div className="overflow-auto px-8 py-6" data-exam-problem>
               {assignment.project.description
                 ? <Markdown source={assignment.project.description} className="prose-md-lg" />
                 : <div className="text-vs-mute">No description provided.</div>}

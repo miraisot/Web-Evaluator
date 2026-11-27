@@ -45,6 +45,7 @@ This guide covers running a first-time exam on **Web Evaluator** inside **Safe E
 - ❌ Do not try to exit, switch windows, or kill SEB. Any such attempt may be treated as malpractice.
 - ❌ Downloads, printing, developer console, back/forward navigation and spell-check are disabled.
 - The **timer ("Time left")** is shown in the header. **Your work auto-submits when time ends.**
+- 👁 **Your exam activity is recorded** ("● Activity recorded" in the header): text pasted from outside the exam, code that appears without being typed, copying the problem text, time spent outside the exam window, typing activity, extra screens, and snapshots of your code as it grows. Invigilators review this after the exam. Copying and pasting *within* your own exam code is normal and is not counted against you.
 
 ### A4. While solving
 

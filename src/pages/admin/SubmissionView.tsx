@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
+import ExamActivity from '../../components/ExamActivity'
 import { useAuth } from '../../lib/auth'
 import CodeEditor from '../../components/CodeEditor'
 import FileTree from '../../components/FileTree'
@@ -247,6 +248,13 @@ export default function SubmissionView() {
         </div>
       </div>
       </>)}
+
+      <details className="card" open>
+        <summary className="font-semibold cursor-pointer">Exam integrity</summary>
+        <div className="mt-3">
+          <ExamActivity assignmentId={row.assignment_id} studentId={row.student_id} />
+        </div>
+      </details>
     </div>
   )
 }

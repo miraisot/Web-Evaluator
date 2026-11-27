@@ -19,6 +19,8 @@
 	<false/>
 	<key>enablePrivateClipboard</key>
 	<true/>
+	<key>browserWindowWebView</key>
+	<integer>3</integer>
 
 	<key>browserWindowAllowReload</key>
 	<true/>

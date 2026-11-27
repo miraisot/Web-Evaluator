@@ -1,4 +1,4 @@
-import Editor from '@monaco-editor/react'
+import Editor, { type OnMount } from '@monaco-editor/react'
 
 const langForFile = (name: string) => {
   if (name.endsWith('.html')) return 'html'
@@ -12,12 +12,13 @@ const langForFile = (name: string) => {
 }
 
 export default function CodeEditor({
-  file, value, onChange, readOnly,
+  file, value, onChange, readOnly, onMount,
 }: {
   file: string
   value: string
   onChange?: (v: string) => void
   readOnly?: boolean
+  onMount?: OnMount
 }) {
   return (
     <Editor
@@ -27,6 +28,7 @@ export default function CodeEditor({
       path={file}
       value={value}
       onChange={(v) => onChange?.(v ?? '')}
+      onMount={onMount}
       options={{
         fontSize: 13,
         minimap: { enabled: false },

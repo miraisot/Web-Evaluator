@@ -12,11 +12,9 @@ Two files with the same settings:
 
 ## Exam keys and quitting (added 2026-11-27)
 
-- **Browser Exam Key / Config Key are on** (`sendBrowserExamKey`). SEB now
-  sends `X-SafeExamBrowser-ConfigKeyHash` and `X-SafeExamBrowser-RequestHash`
-  on every request. Nothing checks them yet; the server-side check is step 3
-  of `docs/ANTI-CHEAT-PLAN.md`. Note the Config Key shown by the Config Tool
-  for each hand-out file; that check will need it.
+- **The app checks the Config Key** (see "Exam lock" below). Every hand-out
+  file has its own Config Key, shown in the config tool's *Exam* section;
+  copy it **after** saving the file (it changes with any setting).
 - **New `examKeySalt` for every exam:** in the Config Tool, *Exam → Browser
   Exam Key → Generate* before saving the hand-out file. The salt in the
   tracked template is public, so don't reuse it.
@@ -29,6 +27,52 @@ Two files with the same settings:
   change `quitURL` too.
 - **Private clipboard is on** (`enablePrivateClipboard`): text copied outside
   SEB can't be pasted in.
+
+## Exam lock: only this .seb file can open the exam
+
+An assignment can be set to **require Safe Exam Browser** (Admin →
+Assignments → *Safe Exam Browser*). Then:
+
+- Opening it from Chrome, Edge, etc. shows "Safe Exam Browser required" and
+  the database refuses to show the problem or accept drafts/submissions.
+- Opening it in SEB with any other or edited .seb file is refused the same
+  way (its Config Key doesn't match).
+- One device at a time: a second laptop on the same account is refused
+  while the first is active. If a laptop dies, the student can continue on
+  another after ~90 s, or immediately after an invigilator presses
+  **Release** (Admin → Exam security).
+- Every refusal is logged with time, IP and browser: Admin → **Exam
+  security** (live, refreshes every 15 s) and the *Exam integrity* box on
+  each submission.
+
+**Set it up for an exam**
+
+1. Build the hand-out .seb from the template (new exam key salt, staff quit
+   password, settings password), save it, copy its **Config Key**.
+2. Admin → **Exam security** → *Add a Safe Exam Browser config*: a name and
+   the Config Key.
+3. Admin → **Assignments**: when assigning, pick *Safe Exam Browser:
+   Required: <config>*; for existing assignments, select them (e.g. *Select
+   by time slot*) and use the bulk bar's *Safe Exam Browser* → *Apply*.
+4. Dry run on an exam-room machine (checklist below), including: open the
+   exam in Chrome → refused; open in SEB with the file → works.
+
+**SEB versions.** The check uses SEB's JavaScript API: SEB **3.4+ for
+Windows**, **3.1+ for macOS/iOS**. Older versions are refused as "not in
+Safe Exam Browser".
+
+**macOS students.** On macOS, `URLFilterEnableContentFilter = true` forces
+SEB's old web view, which has no JavaScript API, so Mac students would always
+be refused. For Macs, save a variant of the file with *Filter embedded
+content* off (keep `browserWindowWebView` = 3, "Prefer modern") and add its
+Config Key to the same config (one key per line). Trade-off: without the
+content filter, code running inside the preview can load from sites outside
+the allow-list; the main window is still restricted.
+
+**Limits.** The Config Key can be derived from the .seb file by someone who
+knows SEB's algorithm, so a very technical student could fake it with a
+script. The one-time code per attempt stops simple replay, and the log shows
+the browser and IP of every session, but invigilation still matters.
 
 ## Before the exam
 

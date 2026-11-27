@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
 import { Session } from '@supabase/supabase-js'
 import { supabase } from './supabase'
+import { forgetExamTokens } from './examSession'
 import type { Profile } from './types'
 
 interface AuthCtx {
@@ -59,6 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [session])
 
   async function signOut() {
+    forgetExamTokens()
     await supabase.auth.signOut()
   }
 
