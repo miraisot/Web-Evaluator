@@ -10,6 +10,26 @@ Two files with the same settings:
   To make a new hand-out file, open it in the SEB Config Tool (Windows) or
   SEB → Settings (macOS), set *General → Quit/unlock password*, and save.
 
+## Exam keys and quitting (added 2026-11-27)
+
+- **Browser Exam Key / Config Key are on** (`sendBrowserExamKey`). SEB now
+  sends `X-SafeExamBrowser-ConfigKeyHash` and `X-SafeExamBrowser-RequestHash`
+  on every request. Nothing checks them yet; the server-side check is step 3
+  of `docs/ANTI-CHEAT-PLAN.md`. Note the Config Key shown by the Config Tool
+  for each hand-out file; that check will need it.
+- **New `examKeySalt` for every exam:** in the Config Tool, *Exam → Browser
+  Exam Key → Generate* before saving the hand-out file. The salt in the
+  tracked template is public, so don't reuse it.
+- **Students don't need the quit password any more.** `quitURL` is
+  `https://web-evaluator.vercel.app/exam/done`: after Submit (or auto-submit)
+  the app signs the student out and loads that URL, and SEB closes by itself.
+  On the "Already submitted" screen there's an *Exit exam* button that does
+  the same. Keep a quit password in the hand-out file for staff emergencies
+  only, and don't tell it to students. If the app moves to another domain,
+  change `quitURL` too.
+- **Private clipboard is on** (`enablePrivateClipboard`): text copied outside
+  SEB can't be pasted in.
+
 ## Before the exam
 
 1. **Save the hand-out file encrypted** (recommended). It's plain XML, so a
