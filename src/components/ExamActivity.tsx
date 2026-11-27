@@ -37,6 +37,8 @@ export const EVENT_LABELS: Record<string, { label: string; tone: 'bad' | 'warn' 
   blocked_wrong_browser: { label: 'Blocked: SEB version not allowed', tone: 'bad' },
   blocked_second_device: { label: 'Blocked: second device', tone: 'bad' },
   blocked_bad_challenge: { label: 'Blocked: invalid or replayed check', tone: 'bad' },
+  blocked_wrong_network: { label: 'Blocked: not on the exam-room network', tone: 'bad' },
+  left_allowed_network:  { label: 'Left the exam-room network mid-exam', tone: 'bad' },
   session_replaced:      { label: 'Session moved to a new device', tone: 'warn' },
   ip_changed:            { label: 'Network (IP) changed mid-exam', tone: 'warn' },
   session_started:       { label: 'Exam session started', tone: 'ok' },
