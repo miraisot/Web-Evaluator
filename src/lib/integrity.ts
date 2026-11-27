@@ -27,6 +27,9 @@ export interface IntegritySummary {
   tracked: boolean | null
   blocked_wrong_network?: number
   left_allowed_network?: number
+  reentry_requests?: number
+  reentries?: number
+  reentries_denied?: number
 }
 
 export type RiskLevel = 'flagged' | 'review' | 'clean' | 'untracked'
@@ -74,6 +77,9 @@ export function assessRisk(s: IntegritySummary | null | undefined): Risk {
   if (s.copies) review.push(`Copied text from the exam page ${s.copies} time(s).`)
   if (s.multi_screen) review.push('A second screen was connected.')
   if (s.print_screens) review.push(`Pressed Print Screen ${s.print_screens} time(s).`)
+  if (s.reentries) review.push(`Left the exam and was let back in by an invigilator ${s.reentries} time(s).`)
+  if (s.reentries_denied) review.push(`Asked to re-enter and was refused ${s.reentries_denied} time(s).`)
+  else if ((s.reentry_requests ?? 0) > (s.reentries ?? 0)) review.push('Left the exam and asked to re-enter (not approved).')
   if (s.device_changes) review.push(`Moved to another device ${s.device_changes} time(s) during the exam.`)
   if (s.ip_changes) review.push(`Network (IP address) changed ${s.ip_changes} time(s) during the exam.`)
 

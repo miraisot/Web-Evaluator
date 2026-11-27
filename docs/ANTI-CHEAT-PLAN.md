@@ -2,6 +2,7 @@
 
 Status (2026-11-27): steps 1–6 built — problems hidden until start; SEB file
 closes itself; SEB Config Key gate with exam sessions, one device at a time,
+re-entry only with invigilator approval,
 blocked-attempt log, admin *Exam security* page; activity tracking (pastes,
 non-typed inserts, copying the problem, time away, typing per minute, extra
 screens, Print Screen), code history with replay, per-submission risk badge

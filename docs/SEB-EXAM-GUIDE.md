@@ -43,6 +43,7 @@ This guide covers running a first-time exam on **Web Evaluator** inside **Safe E
 - ❌ No other applications, no phone, no messaging, no AI tools, no sharing of code.
 - ❌ No external display, no virtual machine, no screen recording.
 - ❌ Do not try to exit, switch windows, or kill SEB. Any such attempt may be treated as malpractice.
+- ✋ **If you leave the exam** (SEB closed, laptop restarted or died), you can only continue after the invigilator approves it. Open the exam again, raise your hand, and stay on the "Waiting for the invigilator" screen: it continues by itself. Your work up to the last autosave is kept.
 - ❌ Downloads, printing, developer console, back/forward navigation and spell-check are disabled.
 - The **timer ("Time left")** is shown in the header. **Your work auto-submits when time ends.**
 - 👁 **Your exam activity is recorded** ("● Activity recorded" in the header): text pasted from outside the exam, code that appears without being typed, copying the problem text, time spent outside the exam window, typing activity, extra screens, and snapshots of your code as it grows. Invigilators review this after the exam. Copying and pasting *within* your own exam code is normal and is not counted against you.

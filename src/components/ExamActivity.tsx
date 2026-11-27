@@ -39,6 +39,9 @@ export const EVENT_LABELS: Record<string, { label: string; tone: 'bad' | 'warn' 
   blocked_bad_challenge: { label: 'Blocked: invalid or replayed check', tone: 'bad' },
   blocked_wrong_network: { label: 'Blocked: not on the exam-room network', tone: 'bad' },
   left_allowed_network:  { label: 'Left the exam-room network mid-exam', tone: 'bad' },
+  reentry_requested:     { label: 'Left the exam and asked to re-enter', tone: 'warn' },
+  reentry_approved:      { label: 'Re-entry approved by invigilator', tone: 'warn' },
+  reentry_denied:        { label: 'Re-entry denied by invigilator', tone: 'bad' },
   session_replaced:      { label: 'Session moved to a new device', tone: 'warn' },
   ip_changed:            { label: 'Network (IP) changed mid-exam', tone: 'warn' },
   session_started:       { label: 'Exam session started', tone: 'ok' },
@@ -70,6 +73,11 @@ function EventDetail({ e }: { e: ExamEventRow }) {
   } else if (e.kind === 'copy') {
     if (n('chars') != null) parts.push(`${n('chars')} chars`)
     if (typeof d.source === 'string') parts.push(`from ${d.source === 'problem' ? 'the problem text' : 'the page'}`)
+  } else if (e.kind === 'reentry_approved' || e.kind === 'reentry_denied') {
+    if (typeof d.by === 'string' && d.by) parts.push(`by ${d.by}`)
+    if (n('waited_s') != null) parts.push(`after ${n('waited_s')} s`)
+  } else if (e.kind === 'reentry_requested' && d.other_device_active === true) {
+    parts.push('exam was still open on another device')
   } else if (e.kind === 'activity' && n('keys') != null) {
     parts.push(`${n('keys')} keystrokes this minute`)
   }
@@ -132,7 +140,7 @@ export default function ExamActivity({ assignmentId, studentId }: { assignmentId
   }, [assignmentId, studentId])
 
   async function release(s: SessionRow) {
-    if (!confirm(`End ${s.student?.email ?? 'this student'}'s exam session? They can then open the exam again (for example on another laptop). Their saved work is kept.`)) return
+    if (!confirm(`End ${s.student?.email ?? 'this student'}'s exam session? Their saved work is kept. To continue, they must open the exam again and you approve it under "Waiting to re-enter".`)) return
     const { error } = await supabase.from('exam_sessions')
       .update({ status: 'revoked', ended_at: new Date().toISOString(), end_reason: 'released_by_admin' })
       .eq('id', s.id)
@@ -194,7 +202,7 @@ export default function ExamActivity({ assignmentId, studentId }: { assignmentId
                         <td className="pr-3">{new Date(s.last_seen_at).toLocaleTimeString()}</td>
                         <td className="pr-3 font-mono">{s.ip}</td>
                         <td className="text-right">
-                          {s.status === 'active' && <button className="btn-ghost text-xs" onClick={() => void release(s)}>Release</button>}
+                          {s.status === 'active' && <button className="btn-ghost text-xs" onClick={() => void release(s)}>End session</button>}
                         </td>
                       </tr>
                     )

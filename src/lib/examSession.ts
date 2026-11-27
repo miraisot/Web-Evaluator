@@ -73,7 +73,7 @@ export async function readSebKeys(): Promise<{ url: string; configKey: string; b
 }
 
 export type GateFailure =
-  | 'no_seb' | 'wrong_config' | 'wrong_browser' | 'wrong_network' | 'active_elsewhere'
+  | 'no_seb' | 'wrong_config' | 'wrong_browser' | 'wrong_network' | 'active_elsewhere' | 'needs_approval' | 'reentry_denied'
   | 'not_open' | 'closed' | 'already_submitted' | 'not_assigned' | 'bad_challenge' | 'error'
 
 export const GATE_MESSAGES: Record<GateFailure, string> = {
@@ -87,5 +87,7 @@ export const GATE_MESSAGES: Record<GateFailure, string> = {
   already_submitted: 'You have already submitted this exam.',
   not_assigned: 'This exam is not assigned to you.',
   bad_challenge: 'The exam check timed out. Press Reload to try again.',
+  needs_approval: 'You left the exam, so an invigilator has to let you back in. Raise your hand and stay on this screen: it continues by itself once they approve.',
+  reentry_denied: 'The invigilator did not approve re-entry. Raise your hand to speak to them.',
   error: 'Could not start the exam session. Press Reload to try again, or ask your invigilator.',
 }
