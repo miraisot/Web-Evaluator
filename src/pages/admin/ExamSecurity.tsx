@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import type { SebConfig } from '../../lib/types'
 import ExamActivity from '../../components/ExamActivity'
+import { parseCidrList } from '../../lib/cidr'
 
 const HEX64 = /^[0-9a-f]{64}$/
 
@@ -14,6 +15,8 @@ export default function ExamSecurity() {
   const [name, setName] = useState('')
   const [configKey, setConfigKey] = useState('')
   const [beks, setBeks] = useState('')
+  const [nets, setNets] = useState('')
+  const [editNets, setEditNets] = useState<{ id: string; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
 
   async function load() {
@@ -38,11 +41,25 @@ export default function ExamSecurity() {
     const bekList = [...new Set(beks.split(/[\s,;]+/).map(s => s.trim().toLowerCase()).filter(Boolean))]
     const bad = bekList.find(k => !HEX64.test(k))
     if (bad) return alert(`Not a Browser Exam Key (64 hex characters): ${bad}`)
+    const netList = parseCidrList(nets)
+    if (netList.errors.length) return alert(`Allowed networks:\n${netList.errors.join('\n')}`)
     setBusy(true)
-    const { error } = await supabase.from('seb_configs').insert({ name: name.trim() || 'Exam', config_keys: keys, browser_exam_keys: bekList })
+    const { error } = await supabase.from('seb_configs').insert({
+      name: name.trim() || 'Exam', config_keys: keys, browser_exam_keys: bekList, allowed_ip_ranges: netList.cidrs,
+    })
     setBusy(false)
     if (error) return alert(error.message)
-    setName(''); setConfigKey(''); setBeks('')
+    setName(''); setConfigKey(''); setBeks(''); setNets('')
+    void load()
+  }
+
+  async function saveNets() {
+    if (!editNets) return
+    const netList = parseCidrList(editNets.text)
+    if (netList.errors.length) return alert(`Allowed networks:\n${netList.errors.join('\n')}`)
+    const { error } = await supabase.from('seb_configs').update({ allowed_ip_ranges: netList.cidrs }).eq('id', editNets.id)
+    if (error) return alert(error.message)
+    setEditNets(null)
     void load()
   }
 
@@ -78,6 +95,15 @@ export default function ExamSecurity() {
               placeholder="One per line. Leave empty to accept any SEB version." />
             <div className="text-[11px] text-vs-mute mt-1">Pins exact SEB versions/builds. The key differs per SEB version and OS.</div>
           </div>
+          <div>
+            <label className="label">Allowed networks (optional)</label>
+            <textarea className="input min-h-[70px] font-mono text-xs" value={nets} onChange={e => setNets(e.target.value)}
+              placeholder={'Public IP / range of the exam-room Wi-Fi, one per line, e.g.\n203.0.113.0/24\n2001:db8:42::/48'} />
+            <div className="text-[11px] text-vs-mute mt-1">
+              Leave empty to allow any network. When set, the exam can only be started from these addresses
+              (not from home or a phone hotspot). See <code>seb/README.md</code> → "Allowed networks".
+            </div>
+          </div>
           <button className="btn w-full" disabled={busy}>{busy ? '…' : 'Add config'}</button>
         </form>
 
@@ -95,8 +121,30 @@ export default function ExamSecurity() {
                   {c.browser_exam_keys.length ? `${c.browser_exam_keys.length} allowed Browser Exam Key(s)` : 'Any SEB version'}
                   {' · '}{usage[c.id] ?? 0} assignment(s)
                 </div>
+                {editNets?.id === c.id ? (
+                  <div className="mt-2 space-y-2">
+                    <textarea className="input min-h-[60px] font-mono text-xs" value={editNets.text} autoFocus
+                      onChange={e => setEditNets({ id: c.id, text: e.target.value })}
+                      placeholder="One IP / range per line. Empty = any network." />
+                    <div className="flex gap-2">
+                      <button className="btn text-xs" onClick={() => void saveNets()}>Save networks</button>
+                      <button className="btn-ghost text-xs" onClick={() => setEditNets(null)}>Cancel</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-xs text-vs-mute font-mono break-all">
+                    {(c.allowed_ip_ranges ?? []).length
+                      ? <>Networks: {c.allowed_ip_ranges.join(', ')}</>
+                      : <span className="font-sans">Any network</span>}
+                  </div>
+                )}
               </div>
-              <button className="btn-ghost text-red-400" onClick={() => void remove(c)}>Delete</button>
+              <div className="flex flex-col items-end gap-1 shrink-0">
+                {editNets?.id !== c.id && (
+                  <button className="btn-ghost text-xs" onClick={() => setEditNets({ id: c.id, text: (c.allowed_ip_ranges ?? []).join('\n') })}>Edit networks</button>
+                )}
+                <button className="btn-ghost text-red-400" onClick={() => void remove(c)}>Delete</button>
+              </div>
             </div>
           ))}
         </div>

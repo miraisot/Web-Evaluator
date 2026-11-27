@@ -25,6 +25,8 @@ export interface IntegritySummary {
   device_changes: number
   ip_changes: number
   tracked: boolean | null
+  blocked_wrong_network?: number
+  left_allowed_network?: number
 }
 
 export type RiskLevel = 'flagged' | 'review' | 'clean' | 'untracked'
@@ -45,7 +47,7 @@ export const RISK_RULES = {
 export function assessRisk(s: IntegritySummary | null | undefined): Risk {
   if (!s || !s.tracked) {
     // Blocked attempts can exist without tracking (they never got in).
-    if (s && (s.blocked_wrong_config || s.blocked_second_device)) {
+    if (s && (s.blocked_wrong_config || s.blocked_second_device || s.blocked_wrong_network)) {
       return { level: 'flagged', reasons: blockedReasons(s) }
     }
     return { level: 'untracked', reasons: ['No activity data (taken before tracking existed, or never opened).'] }
@@ -67,6 +69,7 @@ export function assessRisk(s: IntegritySummary | null | undefined): Risk {
   }
 
   flag.push(...blockedReasons(s))
+  if (s.left_allowed_network) flag.push(`Switched to a network outside the exam room ${s.left_allowed_network} time(s) during the exam.`)
   if (s.blocked_no_seb) review.push(`Tried to open the exam outside Safe Exam Browser ${s.blocked_no_seb} time(s).`)
   if (s.copies) review.push(`Copied text from the exam page ${s.copies} time(s).`)
   if (s.multi_screen) review.push('A second screen was connected.')
@@ -83,6 +86,7 @@ function blockedReasons(s: IntegritySummary): string[] {
   const out: string[] = []
   if (s.blocked_wrong_config) out.push(`Tried to open the exam with a different or edited .seb file ${s.blocked_wrong_config} time(s).`)
   if (s.blocked_second_device) out.push(`Tried to open the exam on a second device ${s.blocked_second_device} time(s) while the first was active.`)
+  if (s.blocked_wrong_network) out.push(`Tried to open the exam from outside the exam-room network ${s.blocked_wrong_network} time(s).`)
   return out
 }
 

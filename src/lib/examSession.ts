@@ -73,13 +73,14 @@ export async function readSebKeys(): Promise<{ url: string; configKey: string; b
 }
 
 export type GateFailure =
-  | 'no_seb' | 'wrong_config' | 'wrong_browser' | 'active_elsewhere'
+  | 'no_seb' | 'wrong_config' | 'wrong_browser' | 'wrong_network' | 'active_elsewhere'
   | 'not_open' | 'closed' | 'already_submitted' | 'not_assigned' | 'bad_challenge' | 'error'
 
 export const GATE_MESSAGES: Record<GateFailure, string> = {
   no_seb: 'This exam can only be opened in Safe Exam Browser, using the .seb file your invigilator gave you. This attempt has been recorded.',
   wrong_config: 'This Safe Exam Browser file is not the one for this exam. Close Safe Exam Browser and open the .seb file your invigilator gave you. This attempt has been recorded.',
   wrong_browser: 'This version of Safe Exam Browser is not allowed for this exam. Ask your invigilator. This attempt has been recorded.',
+  wrong_network: 'Connect to the exam-room Wi-Fi to start this exam (not mobile data, a phone hotspot or another network), then press Reload. If you are on the exam-room Wi-Fi, ask your invigilator. This attempt has been recorded.',
   active_elsewhere: 'This exam is already open on another device. If that was you and the other device is closed, wait a minute and press Reload. Otherwise ask your invigilator. This attempt has been recorded.',
   not_open: 'This exam has not opened yet.',
   closed: 'This exam has closed.',

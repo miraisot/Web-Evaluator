@@ -115,6 +115,8 @@ export interface SebConfig {
   name: string
   config_keys: string[]
   browser_exam_keys: string[]
+  // Public IP ranges (CIDR) the exam may be started from. Empty = any network.
+  allowed_ip_ranges: string[]
   created_at: string
 }
 

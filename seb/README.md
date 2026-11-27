@@ -69,6 +69,49 @@ Config Key to the same config (one key per line). Trade-off: without the
 content filter, code running inside the preview can load from sites outside
 the allow-list; the main window is still restricted.
 
+**Allowed networks (optional): only from the exam-room Wi-Fi.** Students use
+their own laptops, so a config can also list the exam-room Wi-Fi's *public*
+IP address(es). Then the exam can only be started from that network; from
+home, mobile data or a phone hotspot the student sees "Connect to the
+exam-room Wi-Fi…", and the attempt is logged as *Blocked: not on the exam-room
+network*. If a student's IP changes mid-exam to an address outside the list,
+the exam carries on (Wi-Fi blips happen) but *Left the exam-room network
+mid-exam* is logged and the student is flagged. Leave the field empty for no
+restriction.
+
+How to find what to enter:
+
+1. On a laptop connected to the **exam-room Wi-Fi** (not a cable, not
+   another SSID), open <https://api.ipify.org> → the public IPv4 address,
+   e.g. `203.0.113.45`. Also open <https://api64.ipify.org>: if it shows an
+   IPv6 address (with colons), the network has IPv6 too and you need its
+   range as well (step 3).
+2. Repeat on a second laptop and, if the building has several Wi-Fi
+   access points or uplinks, from different parts of the room. Usually it's
+   the same address for everyone (NAT). If you get several, ask campus IT for
+   the range ("which public IP range does the exam-room Wi-Fi go out from?").
+3. Admin → **Exam security** → the config's *Allowed networks* (or *Edit
+   networks* on an existing config), one per line:
+   - a single IPv4 address as is: `203.0.113.45`
+   - an IPv4 range from IT in CIDR form: `203.0.113.0/24`
+   - IPv6: the network's prefix, normally a /64 or /48 from IT, e.g.
+     `2001:db8:42::/48` (a single IPv6 address won't do: every laptop gets
+     its own).
+
+   Not the laptop's own address (`192.168.…`, `10.…`, `172.16–31.…`): that's
+   private and never reaches the server; the page refuses it.
+4. Dry run, before the exam day: start the exam in SEB on the exam-room
+   Wi-Fi → works; switch the same laptop to a phone hotspot and start again
+   → *Connect to the exam-room Wi-Fi…*. On Admin → Exam security the
+   session's IP must be the exam-room address. If the hotspot attempt gets
+   in, or the logged IP isn't the room's, don't rely on this setting and
+   tell the developer (the server reads the client address from the
+   `cf-connecting-ip` header; see `supabase/migration_seb_networks.sql`).
+
+If the exam-room IP changes (new ISP, IT re-config), students are refused
+until the list is updated, so re-check it on the morning of the exam. To
+switch the check off during an exam, *Edit networks* → empty → *Save*.
+
 **Limits.** The Config Key can be derived from the .seb file by someone who
 knows SEB's algorithm, so a very technical student could fake it with a
 script. The one-time code per attempt stops simple replay, and the log shows
